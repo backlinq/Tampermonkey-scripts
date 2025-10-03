@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Elite Filter & Rating Display
 // @namespace    https://github.com/your-profile
-// @version      1.9.4
+// @version      1.9.41
 // @description  Aggressively filters low-quality videos (99.4%+ like ratio) and shows beautiful color-coded ratings
 // @author       Your Name
 // @match        *://www.youtube.com/*
