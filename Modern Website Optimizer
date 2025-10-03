@@ -11,7 +11,7 @@
 (function() {
     'use strict';
 
-    // Enhanced whitelist - ADD YOUTUBE HERE
+    // whitelist
     const whitelist = [
         'youtube.com',
         'docs.google.com',
@@ -29,13 +29,13 @@
     // Much safer element removal
     function safeRemoveElement(element) {
         if (!element || !element.parentNode) return false;
-        
+
         try {
             // Don't remove critical form elements
             if (element.matches('input, textarea, select, button, [role="search"]')) {
                 return false;
             }
-            
+
             element.remove();
             return true;
         } catch (error) {
@@ -46,37 +46,37 @@
     // Much more conservative overlay detection
     function detectProblematicOverlays() {
         const candidates = [];
-        
+
         // Only target very specific problematic elements
         const overlaySelectors = [
             'div[class*="overlay"]',
-            'div[class*="popup"]', 
+            'div[class*="popup"]',
             'div[class*="modal"]',
             'div[class*="lightbox"]',
             '[id*="popup"]',
             '[id*="modal"]'
         ];
-        
+
         overlaySelectors.forEach(selector => {
             document.querySelectorAll(selector).forEach(el => {
                 if (el.closest('body')) {
                     const style = window.getComputedStyle(el);
                     const rect = el.getBoundingClientRect();
-                    
+
                     // Only remove if it's fixed AND covers most of the screen
                     const isTrulyObstructive = (
                         style.position === 'fixed' &&
                         rect.width > window.innerWidth * 0.7 &&
                         rect.height > window.innerHeight * 0.7
                     );
-                    
+
                     if (isTrulyObstructive) {
                         candidates.push(el);
                     }
                 }
             });
         });
-        
+
         return candidates;
     }
 
@@ -117,21 +117,21 @@
     // Main cleanup function
     function performCleanup() {
         if (cleanupCount > 5) return; // Only run a few times
-        
+
         cleanupCount++;
-        
+
         // Remove only truly obstructive overlays
         const overlays = detectProblematicOverlays();
         overlays.forEach(element => {
             safeRemoveElement(element);
         });
-        
+
         // Media control
         manageMediaElements();
-        
+
         // Ad removal
         removeAdContent();
-        
+
         // Only apply animation optimization once
         if (cleanupCount === 1) {
             optimizeAnimations();
@@ -148,7 +148,7 @@
         } else {
             setTimeout(performCleanup, 1000);
         }
-        
+
         // Limited periodic cleanup
         setTimeout(performCleanup, 3000);
         setTimeout(performCleanup, 6000);
