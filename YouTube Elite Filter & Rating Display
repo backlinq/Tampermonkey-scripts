@@ -1,0 +1,397 @@
+// ==UserScript==
+// @name         YouTube Aggressive Ratio Filter with Enhanced Rating Indicator
+// @namespace    https://github.com/your-profile
+// @version      1.9.4
+// @description  Strict ratio filtering with instant removal and enhanced rating display
+// @author       Your Name
+// @match        *://www.youtube.com/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_addStyle
+// @run-at       document-start
+// @connect      returnyoutubedislikeapi.com
+// @license      MIT
+// ==/UserScript==
+
+GM_addStyle(`
+  .ryd-filter-pending {
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+  }
+  .ryd-rating-indicator {
+    position: absolute; top: 4px; left: 4px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(240,240,240,0.95) 100%) !important;
+    font-weight: bold; font-size: 12px; padding: 2px 6px;
+    border-radius: 3px; z-index: 10; user-select: none; pointer-events: none;
+    font-family: Arial, sans-serif; white-space: nowrap;
+    border: 1px solid rgba(0,0,0,0.3) !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.8) !important;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.8) !important;
+    backdrop-filter: blur(2px);
+    color: #000000 !important;
+  }
+  .ryd-video-info-indicator {
+    display: inline-block;
+    background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(240,240,240,0.95) 100%) !important;
+    font-weight: bold; font-size: 14px; padding: 6px 12px;
+    border-radius: 4px; z-index: 100; user-select: none;
+    font-family: Arial, sans-serif; white-space: nowrap;
+    border: 1px solid rgba(0,0,0,0.3) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.6) !important;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.8) !important;
+    margin: 8px 0;
+    backdrop-filter: blur(2px);
+    color: #000000 !important;
+  }
+  #movie_player .ryd-rating-indicator {
+    top: auto; bottom: 45px; left: 15px;
+    font-size: 15px; padding: 3px 8px;
+  }
+  .ryd-star-rating {
+    transition: color 0.5s ease;
+    font-weight: 800;
+  }
+  .ryd-ratio-value {
+    transition: color 0.5s ease;
+    font-weight: 800;
+  }
+  ytd-thumbnail, ytd-compact-video-renderer { position: relative; }
+
+  /* Enhanced text contrast */
+  .ryd-rating-indicator span,
+  .ryd-video-info-indicator span {
+    text-shadow:
+      0 0 4px rgba(255,255,255,0.9),
+      0 1px 2px rgba(255,255,255,0.8),
+      1px 1px 3px rgba(255,255,255,0.7) !important;
+    font-weight: 800;
+  }
+  /* Dark mode support */
+  @media (prefers-color-scheme: dark) {
+    .ryd-rating-indicator,
+    .ryd-video-info-indicator {
+      background: linear-gradient(135deg, rgba(40,40,40,0.95) 0%, rgba(60,60,60,0.95) 100%) !important;
+      color: #ffffff !important;
+      border: 1px solid rgba(255,255,255,0.3) !important;
+    }
+    .ryd-rating-indicator span,
+    .ryd-video-info-indicator span {
+      text-shadow:
+        0 0 4px rgba(0,0,0,0.9),
+        0 1px 2px rgba(0,0,0,0.8),
+        1px 1px 3px rgba(0,0,0,0.7) !important;
+    }
+  }
+`);
+
+(function() {
+    'use strict';
+
+    const MIN_RATIO = 99.4;
+    const API_URL = 'https://returnyoutubedislikeapi.com/votes?videoId=';
+    const CACHE_TTL = 3600000; // 1 hour
+    const PRECISION = 2;
+
+    const cache = {
+        get: videoId => {
+            const entry = GM_getValue(`filterCache_${videoId}`);
+            return entry?.timestamp > Date.now() - CACHE_TTL ? entry.data : null;
+        },
+        set: (videoId, data) => {
+            GM_setValue(`filterCache_${videoId}`, {
+                data,
+                timestamp: Date.now()
+            });
+        }
+    };
+
+    async function fetchVideoData(videoId) {
+        try {
+            return await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: API_URL + videoId,
+                    onload: r => {
+                        if (r.status === 200) {
+                            const data = JSON.parse(r.responseText);
+                            cache.set(videoId, data);
+                            resolve(data);
+                        } else {
+                            reject();
+                        }
+                    },
+                    onerror: reject
+                });
+            });
+        } catch {
+            return null;
+        }
+    }
+
+    function shouldRemove(data) {
+        if (!data || data.likes === undefined) return true;
+        const total = data.likes + data.dislikes;
+        if (total === 0) return true;
+        return (data.likes / total * 100) < MIN_RATIO;
+    }
+
+    function calculateStarRating(ratio) {
+        return Math.max(0, Math.min(10, +(ratio / 10).toFixed(PRECISION)));
+    }
+
+    function calculateRatioValue(likes, dislikes) {
+        if (dislikes === 0) return likes > 0 ? Infinity : 0;
+        return likes / dislikes;
+    }
+
+    function formatRatioDisplay(ratioValue, likes, dislikes) {
+        if (ratioValue === Infinity) return formatNumber(likes);
+        if (ratioValue >= 1000) return ratioValue.toFixed(0);
+        if (ratioValue >= 100) return ratioValue.toFixed(1);
+        return ratioValue.toFixed(2);
+    }
+
+    function formatNumber(num) {
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+        return num.toString();
+    }
+
+    function getStarRatingColor(starRating) {
+        const starColorStops = [
+            { value: 10, color: '#B8860B' },
+            { value: 9, color: '#DAA520' },
+            { value: 8, color: '#FFD700' },
+            { value: 7, color: '#228B22' },
+            { value: 6, color: '#1E90FF' },
+            { value: 5, color: '#8A2BE2' },
+            { value: 4, color: '#FF8C00' },
+            { value: 3, color: '#FF4500' },
+            { value: 2, color: '#DC143C' },
+            { value: 1, color: '#B22222' },
+            { value: 0, color: '#8B0000' }
+        ];
+
+        for (let i = 0; i < starColorStops.length - 1; i++) {
+            const current = starColorStops[i];
+            const next = starColorStops[i + 1];
+            if (starRating <= current.value && starRating >= next.value) {
+                const range = current.value - next.value;
+                const pos = (starRating - next.value) / range;
+                return interpolateColor(next.color, current.color, pos);
+            }
+        }
+        return starRating >= 10 ? starColorStops[0].color : starColorStops[starColorStops.length - 1].color;
+    }
+
+    function getRatioValueColor(ratioValue, likes, dislikes) {
+        if (ratioValue === Infinity) return '#006400';
+
+        const ratioColorStops = [
+            { value: 500, color: '#0000CD' },
+            { value: 429, color: '#1E90FF' },
+            { value: 357, color: '#4169E1' },
+            { value: 286, color: '#4682B4' },
+            { value: 214, color: '#5F9EA0' },
+            { value: 143, color: '#6495ED' },
+            { value: 71, color: '#B22222' },
+            { value: 0, color: '#8B0000' }
+        ];
+
+        for (let i = 0; i < ratioColorStops.length - 1; i++) {
+            const current = ratioColorStops[i];
+            const next = ratioColorStops[i + 1];
+            if (ratioValue <= current.value && ratioValue >= next.value) {
+                const range = current.value - next.value;
+                const pos = (ratioValue - next.value) / range;
+                return interpolateColor(next.color, current.color, pos);
+            }
+        }
+        if (ratioValue >= ratioColorStops[0].value) return ratioColorStops[0].color;
+        if (ratioValue <= ratioColorStops[ratioColorStops.length - 1].value) return ratioColorStops[ratioColorStops.length - 1].color;
+        return '#000000';
+    }
+
+    function interpolateColor(color1, color2, factor) {
+        const hex = color => {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        };
+        const c1 = hex(color1);
+        const c2 = hex(color2);
+        if (!c1 || !c2) return color1;
+        const r = Math.round(c1.r + (c2.r - c1.r) * factor);
+        const g = Math.round(c1.g + (c2.g - c1.g) * factor);
+        const b = Math.round(c1.b + (c2.b - c1.b) * factor);
+        return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    }
+
+    function updateRatingIndicator(element, starRating, ratioValue, totalRatings, likes, dislikes, isVideoInfo = false) {
+        if (!element || !element.isConnected) return;
+
+        const indicatorClass = isVideoInfo ? 'ryd-video-info-indicator' : 'ryd-rating-indicator';
+
+        let existing = element.querySelector(`.${indicatorClass}`);
+        if (existing) existing.remove();
+
+        const div = document.createElement('div');
+        div.className = indicatorClass;
+
+        const starSpan = document.createElement('span');
+        starSpan.className = 'ryd-star-rating';
+        starSpan.textContent = `${starRating} ★ (`;
+        starSpan.style.color = getStarRatingColor(starRating);
+
+        const ratioSpan = document.createElement('span');
+        ratioSpan.className = 'ryd-ratio-value';
+        ratioSpan.textContent = formatRatioDisplay(ratioValue, likes, dislikes);
+        ratioSpan.style.color = getRatioValueColor(ratioValue, likes, dislikes);
+
+        const closingSpan = document.createElement('span');
+        closingSpan.textContent = ')';
+        closingSpan.style.color = getStarRatingColor(starRating);
+
+        div.appendChild(starSpan);
+        div.appendChild(ratioSpan);
+        div.appendChild(closingSpan);
+
+        if (!isVideoInfo) {
+            element.style.position = 'relative';
+        }
+
+        element.appendChild(div);
+    }
+
+    async function processMainVideo() {
+        let videoId;
+        try {
+            videoId = new URL(location.href).searchParams.get('v');
+        } catch {
+            return;
+        }
+        if (!videoId) return;
+
+        const data = await fetchVideoData(videoId);
+        if (!data || data.likes === undefined || data.dislikes === undefined) return;
+
+        const total = data.likes + data.dislikes;
+        if (total === 0) return;
+
+        const ratioPercent = (data.likes / total) * 100;
+        const star = calculateStarRating(ratioPercent);
+        const ratioValue = calculateRatioValue(data.likes, data.dislikes);
+
+        const possibleContainers = [
+            document.querySelector('#above-the-fold #description'),
+            document.querySelector('#description'),
+            document.querySelector('#info-container'),
+            document.querySelector('#info'),
+            document.querySelector('#top-level-buttons-computed'),
+            document.querySelector('#actions'),
+            document.querySelector('#info-text'),
+            document.querySelector('.ytd-watch-flexy'),
+            document.querySelector('#secondary-inner'),
+            document.querySelector('#primary-inner')
+        ];
+
+        for (const container of possibleContainers) {
+            if (container && container.isConnected) {
+                updateRatingIndicator(container, star, ratioValue, total, data.likes, data.dislikes, true);
+                break;
+            }
+        }
+
+        const titleElement = document.querySelector('#title h1 yt-formatted-string')
+                          || document.querySelector('#title h1')
+                          || document.querySelector('h1.title');
+        if (titleElement && titleElement.parentElement) {
+            const titleContainer = titleElement.parentElement;
+            if (!titleContainer.querySelector('.ryd-video-info-indicator')) {
+                updateRatingIndicator(titleContainer, star, ratioValue, total, data.likes, data.dislikes, true);
+            }
+        }
+    }
+
+    async function processElement(element) {
+        const link = element.querySelector('a[href*="/watch?v="]');
+        if (!link) return;
+
+        const videoId = new URL(link.href).searchParams.get('v');
+        if (!videoId) return;
+
+        // Mark as pending
+        const container = element.closest('ytd-rich-item-renderer, ytd-video-renderer');
+        if (container) container.classList.add('ryd-filter-pending');
+
+        const data = await fetchVideoData(videoId);
+        
+        if (shouldRemove(data)) {
+            container?.remove();
+        } else {
+            container?.classList.remove('ryd-filter-pending');
+            
+            // Add rating indicator for videos that pass the filter
+            if (data && data.likes !== undefined && data.dislikes !== undefined) {
+                const total = data.likes + data.dislikes;
+                if (total > 0) {
+                    const ratioPercent = (data.likes / total) * 100;
+                    const star = calculateStarRating(ratioPercent);
+                    const ratioValue = calculateRatioValue(data.likes, data.dislikes);
+                    updateRatingIndicator(element, star, ratioValue, total, data.likes, data.dislikes, false);
+                }
+            }
+        }
+    }
+
+    const observer = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+            mutation.addedNodes.forEach(node => {
+                if (node.nodeType === 1) {
+                    // Handle different YouTube layouts
+                    const elements = node.querySelectorAll?.('ytd-thumbnail, ytd-rich-grid-media') || [];
+                    elements.forEach(processElement);
+
+                    // Handle Shorts
+                    if (node.querySelector?.('ytd-reel-item-renderer')) {
+                        node.querySelectorAll('ytd-thumbnail').forEach(processElement);
+                    }
+
+                    // Handle main video page changes
+                    if (node.id === 'movie_player' || node.querySelector?.('#movie_player') ||
+                        node.querySelector?.('ytd-watch-flexy') || node.querySelector?.('#player-container')) {
+                        setTimeout(processMainVideo, 1000);
+                    }
+                }
+            });
+        });
+    });
+
+    // Instant initial processing
+    document.addEventListener('DOMContentLoaded', () => {
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        // Process existing content
+        document.querySelectorAll('ytd-thumbnail, ytd-rich-grid-media').forEach(processElement);
+        
+        // Process main video with delay
+        setTimeout(processMainVideo, 2000);
+    });
+
+    // Handle URL changes for main video
+    let lastUrl = location.href;
+    setInterval(() => {
+        const currentUrl = location.href;
+        if (currentUrl !== lastUrl && currentUrl.includes('/watch?v=')) {
+            lastUrl = currentUrl;
+            setTimeout(processMainVideo, 1500);
+        }
+    }, 1000);
+})();
