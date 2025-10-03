@@ -1,5 +1,1 @@
-<<<<<<< HEAD
-testfile1
-=======
-testfile1
->>>>>>> ca7ffe2 (Auto commit from Tkinter app with PAT)
+222
