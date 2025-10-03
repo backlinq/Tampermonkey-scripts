@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Modern Website Optimizer
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.01
 // @description  Advanced decluttering for faster loading and reduced resource usage
 // @author       YourName
 // @match        *://*/*
