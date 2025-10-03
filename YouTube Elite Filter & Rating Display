@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         YouTube Aggressive Ratio Filter with Enhanced Rating Indicator
+// @name         YouTube Elite Filter & Rating Display
 // @namespace    https://github.com/your-profile
 // @version      1.9.4
-// @description  Strict ratio filtering with instant removal and enhanced rating display
+// @description  Aggressively filters low-quality videos (99.4%+ like ratio) and shows beautiful color-coded ratings
 // @author       Your Name
 // @match        *://www.youtube.com/*
 // @grant        GM_xmlhttpRequest
@@ -13,6 +13,26 @@
 // @connect      returnyoutubedislikeapi.com
 // @license      MIT
 // ==/UserScript==
+
+// =============================================================================
+// CUSTOMIZABLE SETTINGS - Adjust these values to your preference
+// =============================================================================
+
+const MIN_RATIO = 99.4;           // Minimum like percentage to keep video
+                                  // 99.4=Elite, 98=Strict, 95=Balanced, 90=Lenient
+
+const CACHE_TTL = 3600000;        // Cache duration in milliseconds (1 hour = 3600000)
+
+// =============================================================================
+// ADVANCED SETTINGS - Usually no need to change these
+// =============================================================================
+
+const API_URL = 'https://returnyoutubedislikeapi.com/votes?videoId=';
+const PRECISION = 2;              // Decimal precision for star ratings
+
+// =============================================================================
+// STYLES - Visual customization
+// =============================================================================
 
 GM_addStyle(`
   .ryd-filter-pending {
@@ -85,13 +105,12 @@ GM_addStyle(`
   }
 `);
 
+// =============================================================================
+// MAIN SCRIPT - No changes needed below this line
+// =============================================================================
+
 (function() {
     'use strict';
-
-    const MIN_RATIO = 99.4;
-    const API_URL = 'https://returnyoutubedislikeapi.com/votes?videoId=';
-    const CACHE_TTL = 3600000; // 1 hour
-    const PRECISION = 2;
 
     const cache = {
         get: videoId => {
