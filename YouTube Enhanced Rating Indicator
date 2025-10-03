@@ -1,0 +1,428 @@
+// ==UserScript==
+// @name         YouTube Enhanced Rating Indicator
+// @namespace    https://github.com/your-profile
+// @version      1.9.5
+// @description  Show enhanced YouTube video rating indicators with robust reliability and styling
+// @author       Your Name
+// @match        *://www.youtube.com/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_addStyle
+// @run-at       document-start
+// @connect      returnyoutubedislikeapi.com
+// @license      MIT
+// ==/UserScript==
+
+GM_addStyle(`
+  .ryd-rating-indicator {
+    position: absolute; top: 4px; left: 4px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(240,240,240,0.95) 100%) !important;
+    font-weight: bold; font-size: 12px; padding: 2px 6px;
+    border-radius: 3px; z-index: 10; user-select: none; pointer-events: none;
+    font-family: Arial, sans-serif; white-space: nowrap;
+    border: 1px solid rgba(0,0,0,0.3) !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.8) !important;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.8) !important;
+    backdrop-filter: blur(2px);
+    color: #000000 !important;
+  }
+  .ryd-video-info-indicator {
+    display: inline-block;
+    background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(240,240,240,0.95) 100%) !important;
+    font-weight: bold; font-size: 14px; padding: 6px 12px;
+    border-radius: 4px; z-index: 100; user-select: none;
+    font-family: Arial, sans-serif; white-space: nowrap;
+    border: 1px solid rgba(0,0,0,0.3) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.6) !important;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.8) !important;
+    margin: 8px 0;
+    backdrop-filter: blur(2px);
+    color: #000000 !important;
+  }
+  #movie_player .ryd-rating-indicator {
+    top: auto; bottom: 45px; left: 15px;
+    font-size: 15px; padding: 3px 8px;
+  }
+  .ryd-star-rating {
+    transition: color 0.5s ease;
+    font-weight: 800;
+  }
+  .ryd-ratio-value {
+    transition: color 0.5s ease;
+    font-weight: 800;
+  }
+  ytd-thumbnail, ytd-compact-video-renderer { position: relative; }
+
+  /* Enhanced text contrast */
+  .ryd-rating-indicator span,
+  .ryd-video-info-indicator span {
+    text-shadow:
+      0 0 4px rgba(255,255,255,0.9),
+      0 1px 2px rgba(255,255,255,0.8),
+      1px 1px 3px rgba(255,255,255,0.7) !important;
+    font-weight: 800;
+  }
+  /* Dark mode support */
+  @media (prefers-color-scheme: dark) {
+    .ryd-rating-indicator,
+    .ryd-video-info-indicator {
+      background: linear-gradient(135deg, rgba(40,40,40,0.95) 0%, rgba(60,60,60,0.95) 100%) !important;
+      color: #ffffff !important;
+      border: 1px solid rgba(255,255,255,0.3) !important;
+    }
+    .ryd-rating-indicator span,
+    .ryd-video-info-indicator span {
+      text-shadow:
+        0 0 4px rgba(0,0,0,0.9),
+        0 1px 2px rgba(0,0,0,0.8),
+        1px 1px 3px rgba(0,0,0,0.7) !important;
+    }
+  }
+`);
+
+(function() {
+  'use strict';
+
+  const API_URL = 'https://returnyoutubedislikeapi.com/votes?videoId=';
+  const CACHE_TTL = 3600000; // 1 hour cache
+  const PRECISION = 2;
+  const START_DELAY_MS = 2500;
+  const RETRY_DELAY_MS = 2000;
+  const MAX_RETRIES = 3;
+
+  const cache = {
+    get(videoId) {
+      try {
+        const entry = GM_getValue(`ryd_cache_${videoId}`);
+        if (!entry) return null;
+        if (Date.now() - entry.timestamp < CACHE_TTL) return entry.data;
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    set(videoId, data) {
+      try {
+        GM_setValue(`ryd_cache_${videoId}`, {
+          data,
+          timestamp: Date.now()
+        });
+      } catch (e) {
+        console.warn('Cache set error:', e);
+      }
+    }
+  };
+
+  async function fetchVideoData(videoId, retryCount = 0) {
+    let cached = cache.get(videoId);
+    if (cached) return cached;
+
+    try {
+      return await new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: 'GET',
+          url: API_URL + videoId,
+          timeout: 10000,
+          onload: res => {
+            if (res.status === 200) {
+              try {
+                let data = JSON.parse(res.responseText);
+                cache.set(videoId, data);
+                resolve(data);
+              } catch (e) {
+                reject(e);
+              }
+            } else if (res.status === 429 && retryCount < MAX_RETRIES) {
+              setTimeout(() => {
+                fetchVideoData(videoId, retryCount + 1).then(resolve).catch(reject);
+              }, RETRY_DELAY_MS * (retryCount + 1));
+            } else {
+              reject(new Error(`HTTP ${res.status}`));
+            }
+          },
+          onerror: () => {
+            if (retryCount < MAX_RETRIES) {
+              setTimeout(() => {
+                fetchVideoData(videoId, retryCount + 1).then(resolve).catch(reject);
+              }, RETRY_DELAY_MS * (retryCount + 1));
+            } else {
+              reject(new Error('Network error'));
+            }
+          },
+          ontimeout: () => {
+            if (retryCount < MAX_RETRIES) {
+              setTimeout(() => {
+                fetchVideoData(videoId, retryCount + 1).then(resolve).catch(reject);
+              }, RETRY_DELAY_MS * (retryCount + 1));
+            } else {
+              reject(new Error('Request timeout'));
+            }
+          }
+        });
+      });
+    } catch (e) {
+      console.warn(`Fetch video data error for ${videoId}:`, e);
+      return null;
+    }
+  }
+
+  function calculateStarRating(ratio) {
+    return Math.max(0, Math.min(10, +(ratio / 10).toFixed(PRECISION)));
+  }
+
+  function calculateRatioValue(likes, dislikes) {
+    if (dislikes === 0) return likes > 0 ? Infinity : 0;
+    return likes / dislikes;
+  }
+
+  function formatRatioDisplay(ratioValue, likes, dislikes) {
+    if (ratioValue === Infinity) return formatNumber(likes);
+    if (ratioValue >= 1000) return ratioValue.toFixed(0);
+    if (ratioValue >= 100) return ratioValue.toFixed(1);
+    return ratioValue.toFixed(2);
+  }
+
+  function formatNumber(num) {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  }
+
+  function getStarRatingColor(starRating) {
+    const starColorStops = [
+      { value: 10, color: '#B8860B' },
+      { value: 9, color: '#DAA520' },
+      { value: 8, color: '#FFD700' },
+      { value: 7, color: '#228B22' },
+      { value: 6, color: '#1E90FF' },
+      { value: 5, color: '#8A2BE2' },
+      { value: 4, color: '#FF8C00' },
+      { value: 3, color: '#FF4500' },
+      { value: 2, color: '#DC143C' },
+      { value: 1, color: '#B22222' },
+      { value: 0, color: '#8B0000' }
+    ];
+
+    for (let i = 0; i < starColorStops.length - 1; i++) {
+      const current = starColorStops[i];
+      const next = starColorStops[i + 1];
+      if (starRating <= current.value && starRating >= next.value) {
+        const range = current.value - next.value;
+        const pos = (starRating - next.value) / range;
+        return interpolateColor(next.color, current.color, pos);
+      }
+    }
+    return starRating >= 10 ? starColorStops[0].color : starColorStops[starColorStops.length - 1].color;
+  }
+
+  function getRatioValueColor(ratioValue, likes, dislikes) {
+    if (ratioValue === Infinity) return '#006400';
+
+    const ratioColorStops = [
+      { value: 500, color: '#0000CD' },
+      { value: 429, color: '#1E90FF' },
+      { value: 357, color: '#4169E1' },
+      { value: 286, color: '#4682B4' },
+      { value: 214, color: '#5F9EA0' },
+      { value: 143, color: '#6495ED' },
+      { value: 71, color: '#B22222' },
+      { value: 0, color: '#8B0000' }
+    ];
+
+    for (let i = 0; i < ratioColorStops.length - 1; i++) {
+      const current = ratioColorStops[i];
+      const next = ratioColorStops[i + 1];
+      if (ratioValue <= current.value && ratioValue >= next.value) {
+        const range = current.value - next.value;
+        const pos = (ratioValue - next.value) / range;
+        return interpolateColor(next.color, current.color, pos);
+      }
+    }
+    if (ratioValue >= ratioColorStops[0].value) return ratioColorStops[0].color;
+    if (ratioValue <= ratioColorStops[ratioColorStops.length - 1].value) return ratioColorStops[ratioColorStops.length - 1].color;
+    return '#000000';
+  }
+
+  function interpolateColor(color1, color2, factor) {
+    const hex = color => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color);
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : null;
+    };
+    const c1 = hex(color1);
+    const c2 = hex(color2);
+    if (!c1 || !c2) return color1;
+    const r = Math.round(c1.r + (c2.r - c1.r) * factor);
+    const g = Math.round(c1.g + (c2.g - c1.g) * factor);
+    const b = Math.round(c1.b + (c2.b - c1.b) * factor);
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+  }
+
+  function updateRatingIndicator(element, starRating, ratioValue, totalRatings, likes, dislikes, isVideoInfo = false) {
+    if (!element || !element.isConnected) return;
+
+    const indicatorClass = isVideoInfo ? 'ryd-video-info-indicator' : 'ryd-rating-indicator';
+
+    let existing = element.querySelector(`.${indicatorClass}`);
+    if (existing) existing.remove();
+
+    const div = document.createElement('div');
+    div.className = indicatorClass;
+
+    const starSpan = document.createElement('span');
+    starSpan.className = 'ryd-star-rating';
+    starSpan.textContent = `${starRating} ★ (`;
+    starSpan.style.color = getStarRatingColor(starRating);
+
+    const ratioSpan = document.createElement('span');
+    ratioSpan.className = 'ryd-ratio-value';
+    ratioSpan.textContent = formatRatioDisplay(ratioValue, likes, dislikes);
+    ratioSpan.style.color = getRatioValueColor(ratioValue, likes, dislikes);
+
+    const closingSpan = document.createElement('span');
+    closingSpan.textContent = ')';
+    closingSpan.style.color = getStarRatingColor(starRating);
+
+    div.appendChild(starSpan);
+    div.appendChild(ratioSpan);
+    div.appendChild(closingSpan);
+
+    if (!isVideoInfo) {
+      element.style.position = 'relative';
+    }
+
+    element.appendChild(div);
+  }
+
+  async function processElement(element) {
+    if (!element.isConnected) return;
+
+    let link = element.querySelector('a[href*="/watch?v="]');
+    if (!link) return;
+
+    let videoId;
+    try {
+      videoId = new URL(link.href).searchParams.get('v');
+    } catch {
+      return;
+    }
+
+    if (!videoId) return;
+
+    const data = await fetchVideoData(videoId);
+    if (!data || data.likes === undefined || data.dislikes === undefined) return;
+
+    const total = data.likes + data.dislikes;
+    if (total === 0) return;
+
+    const ratioPercent = (data.likes / total) * 100;
+    const star = calculateStarRating(ratioPercent);
+    const ratioValue = calculateRatioValue(data.likes, data.dislikes);
+
+    updateRatingIndicator(element, star, ratioValue, total, data.likes, data.dislikes, false);
+  }
+
+  async function processMainVideo() {
+    let videoId;
+    try {
+      videoId = new URL(location.href).searchParams.get('v');
+    } catch {
+      return;
+    }
+    if (!videoId) return;
+
+    const data = await fetchVideoData(videoId);
+    if (!data || data.likes === undefined || data.dislikes === undefined) return;
+
+    const total = data.likes + data.dislikes;
+    if (total === 0) return;
+
+    const ratioPercent = (data.likes / total) * 100;
+    const star = calculateStarRating(ratioPercent);
+    const ratioValue = calculateRatioValue(data.likes, data.dislikes);
+
+    const possibleContainers = [
+      document.querySelector('#above-the-fold #description'),
+      document.querySelector('#description'),
+      document.querySelector('#info-container'),
+      document.querySelector('#info'),
+      document.querySelector('#top-level-buttons-computed'),
+      document.querySelector('#actions'),
+      document.querySelector('#info-text'),
+      document.querySelector('.ytd-watch-flexy'),
+      document.querySelector('#secondary-inner'),
+      document.querySelector('#primary-inner')
+    ];
+
+    for (const container of possibleContainers) {
+      if (container && container.isConnected) {
+        updateRatingIndicator(container, star, ratioValue, total, data.likes, data.dislikes, true);
+        break;
+      }
+    }
+
+    const titleElement = document.querySelector('#title h1 yt-formatted-string')
+                      || document.querySelector('#title h1')
+                      || document.querySelector('h1.title');
+    if (titleElement && titleElement.parentElement) {
+      const titleContainer = titleElement.parentElement;
+      if (!titleContainer.querySelector('.ryd-video-info-indicator')) {
+        updateRatingIndicator(titleContainer, star, ratioValue, total, data.likes, data.dislikes, true);
+      }
+    }
+  }
+
+  function startObserving() {
+    const observer = new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== 1) continue;
+
+          const elems = node.querySelectorAll?.('ytd-thumbnail, ytd-rich-grid-media, ytd-compact-video-renderer') || [];
+          elems.forEach(processElement);
+
+          if (node.querySelector?.('ytd-reel-item-renderer')) {
+            node.querySelectorAll('ytd-thumbnail').forEach(processElement);
+          }
+
+          if (node.id === 'movie_player' || node.querySelector?.('#movie_player') ||
+              node.querySelector?.('ytd-watch-flexy') || node.querySelector?.('#player-container')) {
+            setTimeout(processMainVideo, 1000);
+          }
+        }
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Initial scan
+    document.querySelectorAll('ytd-thumbnail, ytd-rich-grid-media, ytd-compact-video-renderer').forEach(processElement);
+    setTimeout(processMainVideo, 2000);
+
+    let lastUrl = location.href;
+    setInterval(() => {
+      const currentUrl = location.href;
+      if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        if (currentUrl.includes('/watch?v=')) {
+          setTimeout(processMainVideo, 1500);
+        }
+        setTimeout(() => {
+          document.querySelectorAll('ytd-thumbnail, ytd-rich-grid-media, ytd-compact-video-renderer').forEach(processElement);
+        }, 1000);
+      }
+    }, 1000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(startObserving, START_DELAY_MS);
+    });
+  } else {
+    setTimeout(startObserving, START_DELAY_MS);
+  }
+})();
