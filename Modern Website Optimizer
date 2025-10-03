@@ -1,0 +1,279 @@
+// ==UserScript==
+// @name         Modern Website Optimizer
+// @namespace    http://tampermonkey.net/
+// @version      2.0
+// @description  Advanced decluttering for faster loading and reduced resource usage
+// @author       YourName
+// @match        *://*/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_registerMenuCommand
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // Enhanced whitelist with pattern matching
+    const whitelist = [
+        'docs.google.com',
+        'mail.google.com',
+        'github.com',
+        'notion.so',
+        'figma.com'
+    ];
+
+    // Check if current domain is whitelisted
+    if (whitelist.some(domain => location.hostname.includes(domain))) {
+        return;
+    }
+
+    // Configuration with sensible defaults
+    const config = {
+        removeOverlays: true,
+        pauseMedia: true,
+        removeAds: true,
+        optimizeAnimations: true,
+        cleanupInterval: 3000,
+        maxCleanupTime: 10000 // Stop cleanup after 10 seconds
+    };
+
+    let cleanupCount = 0;
+    const startTime = Date.now();
+
+    // Modern DOM removal with safety checks
+    function safeRemoveElement(element) {
+        if (!element || !element.parentNode) return false;
+        
+        try {
+            // Store position for potential undo
+            const rect = element.getBoundingClientRect();
+            element.setAttribute('data-tm-removed', Date.now());
+            
+            element.remove();
+            return true;
+        } catch (error) {
+            console.warn('TM Optimizer: Failed to remove element', error);
+            return false;
+        }
+    }
+
+    // Smart overlay detection using multiple heuristics
+    function detectProblematicOverlays() {
+        const candidates = [];
+        
+        document.querySelectorAll('div, section, aside, dialog, [role="dialog"]').forEach(el => {
+            if (el.closest('[data-tm-whitelist]')) return;
+            
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            const area = rect.width * rect.height;
+            const viewportArea = window.innerWidth * window.innerHeight;
+            
+            // Multiple detection strategies
+            const isLargeFixed = (
+                (style.position === 'fixed' || style.position === 'sticky') &&
+                area > viewportArea * 0.3
+            );
+            
+            const isModal = (
+                el.hasAttribute('open') || // dialog elements
+                el.getAttribute('role') === 'dialog' ||
+                style.zIndex > 1000 ||
+                el.matches('[class*="modal"], [class*="popup"], [class*="overlay"]')
+            );
+            
+            const coversViewport = (
+                rect.width >= window.innerWidth * 0.8 &&
+                rect.height >= window.innerHeight * 0.5
+            );
+            
+            if ((isLargeFixed && coversViewport) || isModal) {
+                candidates.push({
+                    element: el,
+                    score: (isModal ? 2 : 1) + (coversViewport ? 1 : 0),
+                    reason: isModal ? 'modal' : 'large-fixed'
+                });
+            }
+        });
+        
+        // Sort by score and remove highest scoring elements first
+        return candidates.sort((a, b) => b.score - a.score);
+    }
+
+    // Enhanced media management
+    function manageMediaElements() {
+        document.querySelectorAll('video, audio, [autoplay]').forEach(media => {
+            if (media.tagName === 'VIDEO' || media.tagName === 'AUDIO') {
+                if (!media.paused && !media.controls) {
+                    media.pause();
+                    media.currentTime = 0;
+                }
+                
+                // Prevent autoplay on future changes
+                media.setAttribute('data-tm-paused', 'true');
+                media.removeAttribute('autoplay');
+            }
+        });
+    }
+
+    // Advanced ad detection
+    function removeAdContent() {
+        const adSelectors = [
+            'iframe[src*="ads"]',
+            'iframe[src*="doubleclick"]',
+            'iframe[src*="googleads"]',
+            'iframe[src*="adservice"]',
+            '[class*="advertisement"]',
+            '[class*="ad-container"]',
+            '[data-ad]',
+            '[id*="ad-"]',
+            'ins.adsbygoogle'
+        ];
+        
+        adSelectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(ad => {
+                if (ad.closest('body')) { // Ensure it's in DOM
+                    safeRemoveElement(ad);
+                }
+            });
+        });
+    }
+
+    // Performance-focused animation optimization
+    function optimizeAnimations() {
+        if (!document.getElementById('tm-animation-optimizer')) {
+            const style = document.createElement('style');
+            style.id = 'tm-animation-optimizer';
+            style.textContent = `
+                /* Reduce motion for non-essential animations */
+                * {
+                    animation-duration: 0.001s !important;
+                    animation-delay: 0s !important;
+                    transition-duration: 0.001s !important;
+                    transition-delay: 0s !important;
+                }
+                
+                /* Preserve essential UI animations */
+                button:hover, 
+                a:hover, 
+                [role="button"]:hover,
+                .loading, 
+                [class*="spinner"],
+                [class*="progress"] {
+                    transition-duration: 0.1s !important;
+                }
+                
+                /* Respect reduced motion preference */
+                @media (prefers-reduced-motion: reduce) {
+                    * {
+                        animation-duration: 0.001s !important;
+                        transition-duration: 0.001s !important;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+    }
+
+    // Main cleanup function with performance monitoring
+    function performCleanup() {
+        // Stop cleanup if taking too long
+        if (Date.now() - startTime > config.maxCleanupTime) {
+            console.log('TM Optimizer: Cleanup completed');
+            return;
+        }
+
+        cleanupCount++;
+        
+        if (config.removeOverlays) {
+            const overlays = detectProblematicOverlays();
+            overlays.forEach(({ element, reason }) => {
+                if (safeRemoveElement(element)) {
+                    console.log(`TM Optimizer: Removed ${reason} overlay`);
+                }
+            });
+        }
+        
+        if (config.pauseMedia) {
+            manageMediaElements();
+        }
+        
+        if (config.removeAds) {
+            removeAdContent();
+        }
+        
+        // Only apply animation optimization once
+        if (config.optimizeAnimations && cleanupCount === 1) {
+            optimizeAnimations();
+        }
+    }
+
+    // Modern intersection observer for dynamic content
+    function setupDynamicContentObserver() {
+        const observer = new MutationObserver((mutations) => {
+            let shouldCleanup = false;
+            
+            mutations.forEach(mutation => {
+                mutation.addedNodes.forEach(node => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const el = node;
+                        // Check if added content matches patterns we care about
+                        if (el.matches?.('video, audio, iframe, [autoplay], dialog, [role="dialog"]')) {
+                            shouldCleanup = true;
+                        } else if (el.querySelector?.('video, audio, iframe, [autoplay], dialog')) {
+                            shouldCleanup = true;
+                        }
+                    }
+                });
+            });
+            
+            if (shouldCleanup) {
+                setTimeout(performCleanup, 100);
+            }
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+
+    // Initialize optimizer
+    function init() {
+        // Initial cleanup
+        performCleanup();
+        
+        // Setup observer for dynamic content
+        setupDynamicContentObserver();
+        
+        // Periodic cleanup (with decreasing frequency)
+        const intervals = [1000, 2000, 5000];
+        intervals.forEach((delay, index) => {
+            setTimeout(performCleanup, delay);
+        });
+        
+        // Final cleanup after page load
+        window.addEventListener('load', () => {
+            setTimeout(performCleanup, 1000);
+        });
+        
+        console.log('TM Optimizer: Initialized successfully');
+    }
+
+    // Start when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    // Optional: Add menu command for temporary disable
+    if (typeof GM_registerMenuCommand === 'function') {
+        GM_registerMenuCommand('Toggle Optimizer', () => {
+            const disabled = !GM_getValue('optimizerDisabled', false);
+            GM_setValue('optimizerDisabled', disabled);
+            alert(`Website Optimizer ${disabled ? 'disabled' : 'enabled'}`);
+            if (!disabled) location.reload();
+        });
+    }
+})();
