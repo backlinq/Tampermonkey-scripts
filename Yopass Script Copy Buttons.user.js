@@ -4,7 +4,7 @@
 // @version      1.2
 // @description  Adds vertical copy button to Yopass script elements
 // @author       Tampermonkey Script Creator
-// @match        *://*/*
+// @match        https://yopass.se/*
 // @icon         https://www.google.com/s2/favicons?domain=tampermonkey.net
 // @grant        none
 // ==/UserScript==
