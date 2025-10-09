@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yopass Script Copy Buttons
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Adds vertical copy button to Yopass script elements
 // @author       Tampermonkey Script Creator
 // @match        *://*/*
@@ -19,6 +19,9 @@
         document.querySelectorAll('div.bg-base-200.rounded-lg.p-6.text-lg.font-mono.whitespace-pre-wrap.min-h-\\[120px\\].text-base-content').forEach(scriptDiv => {
             // Avoid duplicate buttons
             if (scriptDiv.querySelector('.tm-copy-sidebar')) return;
+
+            // Store original content before adding button
+            const originalContent = scriptDiv.textContent;
 
             // Make container relative for positioning
             scriptDiv.style.position = 'relative';
@@ -68,9 +71,8 @@
 
             // Copy logic
             function handleCopy() {
-                // Get only the script content, excluding the button text
-                const scriptContent = scriptDiv.textContent.replace('COPY', '').trim();
-                navigator.clipboard.writeText(scriptContent).then(() => {
+                // Use the stored original content instead of current textContent
+                navigator.clipboard.writeText(originalContent).then(() => {
                     const originalText = sidebarBtn.textContent;
                     const originalBackground = sidebarBtn.style.background;
                     const originalColor = sidebarBtn.style.color;
