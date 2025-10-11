@@ -1,0 +1,279 @@
+// ==UserScript==
+// @name         Reyohoho Performance Optimizer
+// @namespace    http://tampermonkey.net/
+// @version      1.3
+// @description  Make Reyohoho faster and reduce CPU/RAM usage without breaking videos
+// @author       YourName
+// @match        https://reyohoho.github.io/*
+// @match        https://reyohoho.gitlab.io/reyohoho/*
+// @match        https://reyohoho-vue.vercel.app/*
+// @match        https://reyohoho.onrender.com/*
+// @match        https://reyohoho.serv00.net/*
+// @match        *://*.reyohoho.github.io/*
+// @match        *://*.reyohoho.gitlab.io/*
+// @match        *://*.vercel.app/*
+// @match        *://*.onrender.com/*
+// @match        *://*.serv00.net/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    let cleanupCount = 0;
+    const MAX_CLEANUPS = 8;
+    let isVideoPage = false;
+
+    function optimizeReyohoho() {
+        if (cleanupCount >= MAX_CLEANUPS) return;
+        cleanupCount++;
+
+        try {
+            // Detect if we're on a video playback page
+            isVideoPage = document.querySelector('video') !== null;
+
+            // 1. Remove heavy elements but PRESERVE ALL VIDEO ELEMENTS
+            const heavySelectors = [
+                '.advertisement',
+                '.ads',
+                '[class*="ad-"]',
+                '[id*="ad-"]',
+                '.promo',
+                '.sponsored',
+                '.social-widget',
+                '.newsletter',
+                '.donation-banner',
+                '.cookie-consent',
+                '.age-gate',
+                '.preloader:not(.video-loader)',
+                '.loading-screen:not(.video-loading)'
+            ];
+
+            heavySelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                    // Skip if element contains or is near video player
+                    if (!el.closest('.video-player') && 
+                        !el.closest('.player-container') &&
+                        !el.closest('video') &&
+                        !el.querySelector('video')) {
+                        el.remove();
+                    }
+                });
+            });
+
+            // 2. Optimize non-essential animations (but keep video-related animations)
+            if (!document.getElementById('reyohoho-perf-style')) {
+                const style = document.createElement('style');
+                style.id = 'reyohoho-perf-style';
+                style.textContent = `
+                    /* Reduce heavy UI animations but keep video controls smooth */
+                    *:not(.video-controls):not(.player-ui):not(.progress-bar) {
+                        animation-duration: 0.05s !important;
+                        transition-duration: 0.05s !important;
+                        animation-iteration-count: 1 !important;
+                    }
+                    
+                    /* Keep video control animations smooth */
+                    .video-controls *, .player-ui *, .progress-bar * {
+                        animation-duration: 0.2s !important;
+                        transition-duration: 0.2s !important;
+                    }
+                    
+                    /* Hide promotional content */
+                    .promo-banner, 
+                    .ad-container,
+                    .sponsored-content,
+                    .donation-request {
+                        display: none !important;
+                    }
+                    
+                    /* Optimize scroll performance */
+                    .movie-grid,
+                    .video-list,
+                    .content-row {
+                        will-change: transform;
+                        transform: translateZ(0);
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // 3. Optimize images (lazy load everything except poster images near videos)
+            const images = document.querySelectorAll('img:not([loading]):not(.poster-img):not(.thumbnail)');
+            images.forEach(img => {
+                if (!img.closest('.video-player') && !img.closest('.player-container')) {
+                    img.setAttribute('loading', 'lazy');
+                    img.setAttribute('decoding', 'async');
+                }
+            });
+
+            // 4. Remove tracking scripts but preserve video analytics
+            const trackingSelectors = [
+                'iframe[src*="google-analytics"]',
+                'iframe[src*="doubleclick"]',
+                'iframe[src*="googlesyndication"]',
+                'iframe[src*="facebook.com/plugins"]',
+                'iframe[src*="twitter.com/widgets"]',
+                'script[src*="analytics"]:not([src*="video"]):not([src*="player"])'
+            ];
+
+            trackingSelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                    if (!el.closest('.video-player') && !el.closest('.player-container')) {
+                        el.remove();
+                    }
+                });
+            });
+
+            // 5. Optimize video-related performance
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
+                // Only optimize non-playing videos to preserve UX
+                if (video.paused || video.ended) {
+                    video.preload = 'metadata';
+                    video.setAttribute('playsinline', '');
+                }
+                
+                // Ensure video controls remain functional
+                video.controls = true;
+            });
+
+            // 6. Clean up heavy DOM elements (but preserve video player structure)
+            const heavyContainers = [
+                '.sidebar:not(.video-sidebar)',
+                '.header:not(.video-header)',
+                '.footer:not(.video-footer)',
+                '.comments-section:not(.video-comments)',
+                '.recommendations:not(.video-recommendations)'
+            ];
+
+            heavyContainers.forEach(selector => {
+                document.querySelectorAll(selector).forEach(container => {
+                    // Only remove if it's not visible and not near video
+                    const rect = container.getBoundingClientRect();
+                    if ((rect.top > window.innerHeight || rect.bottom < 0) && 
+                        !container.querySelector('video') && 
+                        !container.closest('.video-player')) {
+                        container.style.display = 'none';
+                    }
+                });
+            });
+
+            // 7. Optimize scroll performance for movie grids
+            const contentGrids = document.querySelectorAll('.movie-grid, .video-grid, .content-grid');
+            contentGrids.forEach(grid => {
+                grid.style.contentVisibility = 'auto';
+                grid.style.contain = 'layout style paint';
+            });
+
+            // 8. Debounce search and filter operations
+            const searchInputs = document.querySelectorAll('input[type="search"], input[placeholder*="search"], input[placeholder*="Search"]');
+            searchInputs.forEach(input => {
+                if (!input.hasAttribute('data-optimized')) {
+                    let searchTimeout;
+                    const originalHandler = input.oninput;
+                    
+                    input.oninput = function(e) {
+                        clearTimeout(searchTimeout);
+                        searchTimeout = setTimeout(() => {
+                            if (originalHandler) originalHandler.call(this, e);
+                        }, 300);
+                    };
+                    
+                    input.setAttribute('data-optimized', 'true');
+                }
+            });
+
+            // 9. Memory management for off-screen content
+            if (isVideoPage) {
+                // On video pages, clean up background content
+                const backgroundContent = document.querySelectorAll('.movie-list, .category-grid, .browse-content');
+                backgroundContent.forEach(content => {
+                    const rect = content.getBoundingClientRect();
+                    if (rect.top > window.innerHeight * 1.5 || rect.bottom < -window.innerHeight) {
+                        content.querySelectorAll('img:not([data-essential])').forEach(img => {
+                            img.src = '';
+                            img.srcset = '';
+                        });
+                    }
+                });
+            }
+
+            console.log('Reyohoho Optimizer: Cleanup completed');
+
+        } catch (error) {
+            console.log('Reyohoho Optimizer: Safe error occurred', error);
+        }
+    }
+
+    // Performance monitoring
+    function monitorPerformance() {
+        // Reduce timer resolution for better performance
+        if (window.performance && window.performance.now) {
+            const originalNow = performance.now;
+            performance.now = function() {
+                return Math.floor(originalNow.call(performance) / 10) * 10;
+            };
+        }
+    }
+
+    // Strategic optimization scheduling
+    function scheduleOptimization() {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(optimizeReyohoho, 100);
+                setTimeout(optimizeReyohoho, 1000);
+            });
+        } else {
+            setTimeout(optimizeReyohoho, 100);
+            setTimeout(optimizeReyohoho, 1000);
+        }
+    }
+
+    // Initial optimization
+    scheduleOptimization();
+    monitorPerformance();
+
+    // Video-specific optimizations
+    document.addEventListener('play', (e) => {
+        if (e.target.tagName === 'VIDEO') {
+            // When video plays, optimize background content
+            setTimeout(optimizeReyohoho, 2000);
+        }
+    }, true);
+
+    // Optimize on user interactions
+    let interactionTimeout;
+    const optimizeOnInteraction = () => {
+        clearTimeout(interactionTimeout);
+        interactionTimeout = setTimeout(optimizeReyohoho, 1500);
+    };
+
+    ['click', 'scroll', 'keydown', 'mousemove'].forEach(event => {
+        document.addEventListener(event, optimizeOnInteraction, { passive: true });
+    });
+
+    // Clean up on page hide
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            // Reduce resource usage when tab is not visible
+            document.querySelectorAll('video:not(:fullscreen)').forEach(video => {
+                if (!video.paused) {
+                    video.pause();
+                }
+            });
+        } else {
+            setTimeout(optimizeReyohoho, 500);
+        }
+    });
+
+    // Prevent memory leaks on navigation
+    window.addEventListener('beforeunload', () => {
+        document.querySelectorAll('video').forEach(video => {
+            video.pause();
+            video.src = '';
+            video.load();
+        });
+    });
+
+})();
