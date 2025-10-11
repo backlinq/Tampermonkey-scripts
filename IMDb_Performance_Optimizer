@@ -1,0 +1,213 @@
+// ==UserScript==
+// @name         IMDb Performance Optimizer
+// @namespace    http://tampermonkey.net/
+// @version      1.2
+// @description  Make IMDb faster and reduce CPU usage without breaking functionality
+// @author       YourName
+// @match        *://*.imdb.com/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    let cleanupCount = 0;
+    const MAX_CLEANUPS = 5; // Prevent infinite loops
+
+    function optimizeIMDb() {
+        if (cleanupCount >= MAX_CLEANUPS) return;
+        cleanupCount++;
+
+        try {
+            // 1. Remove heavy auto-playing video trailers (main culprit for CPU usage)
+            const videos = document.querySelectorAll('video[autoplay], .ipc-video[autoplay], [data-testid*="video"][autoplay]');
+            videos.forEach(video => {
+                if (!video.paused) {
+                    video.pause();
+                    video.currentTime = 0;
+                    video.removeAttribute('autoplay');
+                    video.setAttribute('preload', 'none');
+                }
+            });
+
+            // 2. Remove sponsored content and ads without breaking layout
+            const adSelectors = [
+                '[data-testid*="ad"]',
+                '[class*="advertisement"]',
+                '[class*="sponsored"]',
+                '.native-ad',
+                '.promoted-content',
+                '.prime-video-promo',
+                '.imdb-upgrade-promo'
+            ];
+
+            adSelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                    // Only remove if it doesn't contain important navigation
+                    if (!el.closest('nav') && !el.closest('[data-testid*="nav"]')) {
+                        el.remove();
+                    }
+                });
+            });
+
+            // 3. Optimize images - convert to lazy loading
+            const images = document.querySelectorAll('img[src]:not([loading])');
+            images.forEach(img => {
+                if (img.complete && img.naturalHeight === 0) {
+                    // Broken image
+                    img.style.display = 'none';
+                } else if (!img.hasAttribute('loading')) {
+                    img.setAttribute('loading', 'lazy');
+                }
+            });
+
+            // 4. Limit heavy animations and transitions
+            if (!document.getElementById('imdb-perf-style')) {
+                const style = document.createElement('style');
+                style.id = 'imdb-perf-style';
+                style.textContent = `
+                    /* Reduce heavy animations */
+                    [class*="animation"],
+                    [class*="transition"],
+                    .ipc-page-content--base * {
+                        animation-duration: 0.1s !important;
+                        transition-duration: 0.1s !important;
+                        animation-iteration-count: 1 !important;
+                    }
+
+                    /* Keep hover effects but make them faster */
+                    .ipc-poster-card:hover,
+                    .ipc-title-link-wrapper:hover {
+                        transition-duration: 0.05s !important;
+                    }
+
+                    /* Hide some promotional elements */
+                    .prime-banner,
+                    .imdb-pro-promo,
+                    [data-testid*="promo"] {
+                        display: none !important;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // 5. Clean up tracking and analytics scripts
+            const trackers = [
+                'google-analytics',
+                'googletag',
+                'doubleclick',
+                'scorecardresearch',
+                'zedo',
+                'quantserve'
+            ];
+
+            // Remove tracking iframes
+            document.querySelectorAll('iframe').forEach(iframe => {
+                const src = iframe.src || '';
+                if (trackers.some(tracker => src.includes(tracker))) {
+                    iframe.remove();
+                }
+            });
+
+            // 6. Optimize scroll performance for movie grids
+            const movieGrids = document.querySelectorAll('[data-testid="title-cast-item"], .ipc-poster-card');
+            movieGrids.forEach(item => {
+                item.style.willChange = 'auto';
+                item.style.transform = 'translateZ(0)'; // Promote to GPU layer
+            });
+
+            // 7. Remove unused web fonts (keep only essential)
+            if (!document.getElementById('imdb-font-optimizer')) {
+                const fontStyle = document.createElement('style');
+                fontStyle.id = 'imdb-font-optimizer';
+                fontStyle.textContent = `
+                    /* Prevent loading of non-essential fonts */
+                    @font-face {
+                        font-family: 'IMDb-Font-*';
+                        font-display: swap;
+                    }
+                `;
+                document.head.appendChild(fontStyle);
+            }
+
+            // 8. Optimize search suggestions (heavy on DOM manipulation)
+            const searchInput = document.querySelector('#suggestion-search');
+            if (searchInput) {
+                searchInput.setAttribute('autocomplete', 'off');
+
+                // Debounce search to reduce CPU
+                let searchTimeout;
+                const originalInput = searchInput.oninput;
+                searchInput.oninput = function(e) {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        if (originalInput) originalInput.call(this, e);
+                    }, 200);
+                };
+            }
+
+            // 9. Clean up memory-intensive elements
+            const memoryHeavySelectors = [
+                '.ipc-shoveler',
+                '.ipc-slider',
+                '[data-testid*="carousel"]'
+            ];
+
+            memoryHeavySelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                    // Only clean up elements far from viewport
+                    const rect = el.getBoundingClientRect();
+                    if (rect.top > window.innerHeight * 2 || rect.bottom < -window.innerHeight) {
+                        el.querySelectorAll('video, iframe, [data-testid*="video"]').forEach(media => {
+                            media.remove();
+                        });
+                    }
+                });
+            });
+
+            console.log('IMDb Optimizer: Cleanup completed');
+
+        } catch (error) {
+            console.log('IMDb Optimizer: Safe error occurred', error);
+        }
+    }
+
+    // Run optimizations with strategic timing
+    function scheduleOptimization() {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', optimizeIMDb);
+        } else {
+            setTimeout(optimizeIMDb, 1000);
+        }
+    }
+
+    // Initial optimization
+    scheduleOptimization();
+
+    // Optimize when page becomes visible (tab switch)
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            setTimeout(optimizeIMDb, 500);
+        }
+    });
+
+    // Optimize after user interactions
+    let interactionTimeout;
+    const interactionEvents = ['scroll', 'click', 'keydown'];
+
+    interactionEvents.forEach(event => {
+        document.addEventListener(event, () => {
+            clearTimeout(interactionTimeout);
+            interactionTimeout = setTimeout(optimizeIMDb, 2000);
+        }, { passive: true });
+    });
+
+    // Clean up when leaving page
+    window.addEventListener('beforeunload', () => {
+        // Pause all media
+        document.querySelectorAll('video, audio').forEach(media => {
+            if (!media.paused) media.pause();
+        });
+    });
+
+})();
