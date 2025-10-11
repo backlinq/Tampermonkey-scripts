@@ -1,464 +1,357 @@
 // ==UserScript==
-// @name         IMDb Custom Button
+// @name         IMDb Enhanced View Button
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Add custom button to IMDb pages for elderly users
+// @version      2.22
+// @description  Add one-click access to enhanced movie view for better readability and experience
 // @author       You
-// @match        https://www.imdb.com/title/tt*
-// @match        https://www.imdb.com/title/tt*/*
-// @match        https://www.imdb.com/chart/*
-// @match        https://www.imdb.com/chart/*/*
-// @icon         https://www.imdb.com/favicon.ico
-// @grant        GM_addStyle
-// @grant        GM.xmlHttpRequest
-// @run-at       document-start
-// @noframes
+// @match        https://www.imdb.com/*
+// @match        https://*.imdb.com/*
+// @match        https://imdb.com/*
+// @match        https://www-imdb-com.translate.goog/*
+// @grant        none
 // ==/UserScript==
 
 (function() {
     'use strict';
-    
-    // Multiple initialization methods for cross-browser compatibility
-    const initMethods = [
-        // Method 1: DOMContentLoaded (standard)
-        function() {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initializeScript);
-            } else {
-                initializeScript();
-            }
-        },
-        
-        // Method 2: window.onload (fallback)
-        function() {
-            window.addEventListener('load', initializeScript);
-        },
-        
-        // Method 3: Direct execution with timeout (aggressive fallback)
-        function() {
-            setTimeout(initializeScript, 1000);
-        },
-        
-        // Method 4: MutationObserver for dynamic content (modern browsers)
-        function() {
-            if (document.body) {
-                initializeScript();
-            } else {
-                const bodyObserver = new MutationObserver(function(mutations, observer) {
-                    if (document.body) {
-                        observer.disconnect();
-                        setTimeout(initializeScript, 100);
-                    }
-                });
-                bodyObserver.observe(document.documentElement, { childList: true, subtree: true });
-            }
-        }
-    ];
-    
-    // Try all initialization methods
-    function initializeWithFallbacks() {
-        for (let i = 0; i < initMethods.length; i++) {
-            try {
-                initMethods[i]();
-                console.log('IMDb Custom Button: Initialization method', i + 1, 'executed');
-                break;
-            } catch (e) {
-                console.warn('IMDb Custom Button: Initialization method', i + 1, 'failed:', e);
-                // Continue to next method
-            }
+
+    let buttonsAdded = false;
+    let processedMovies = new Set();
+
+    // Check if current page is supported
+    function isSupportedPage() {
+        const path = window.location.pathname;
+        return path.includes('/title/tt') || path.includes('/chart/');
+    }
+
+    function insertCustomButton() {
+        if (!isSupportedPage()) return;
+
+        const currentUrl = window.location.href;
+
+        if (currentUrl.includes('/chart/')) {
+            addButtonsToChartPage();
+        } else {
+            addButtonToTitlePage();
         }
     }
-    
-    // Start the initialization process
-    if (typeof GM_info !== 'undefined') {
-        // Running in Tampermonkey
-        initializeWithFallbacks();
-    } else {
-        // Fallback for direct script injection
-        window.addEventListener('load', initializeScript);
-    }
-    
-    // Main script functionality
-    function initializeScript() {
-        // Prevent multiple initializations
-        if (window.imdbCustomButtonInitialized) return;
-        window.imdbCustomButtonInitialized = true;
-        
-        console.log('IMDb Custom Button: Initializing script');
-        
-        // Add CSS with multiple methods
-        injectStyles();
-        
-        // Start the main functionality
-        setTimeout(main, 50);
-    }
-    
-    function injectStyles() {
-        const css = `
-            .custom-imdb-button {
-                display: inline-flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                width: 70px !important;
-                height: 70px !important;
-                border-radius: 50% !important;
-                background-image: url('https://i.ibb.co/7Nzq0H4t/avatar.png') !important;
-                background-size: cover !important;
-                background-position: center !important;
-                background-repeat: no-repeat !important;
-                border: 3px solid #fff !important;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-                cursor: pointer !important;
-                transition: all 0.3s ease !important;
-                text-decoration: none !important;
-                margin-right: 15px !important;
-                vertical-align: middle !important;
-                flex-shrink: 0 !important;
-                z-index: 10000 !important;
-            }
-            .custom-imdb-button:hover {
-                transform: scale(1.1) !important;
-                box-shadow: 0 6px 16px rgba(0,0,0,0.4) !important;
-            }
-            .custom-imdb-button:active {
-                transform: scale(0.95) !important;
-            }
-            .custom-imdb-button.chart-size {
-                width: 50px !important;
-                height: 50px !important;
-                margin-left: 10px !important;
-                margin-right: 0 !important;
-            }
-            @media (prefers-reduced-motion: reduce) {
-                .custom-imdb-button {
-                    transition: none !important;
-                }
-            }
-        `;
-        
-        // Method 1: GM_addStyle (Tampermonkey)
-        if (typeof GM_addStyle !== "undefined") {
-            try {
-                GM_addStyle(css);
+
+    function addButtonToTitlePage() {
+        if (document.querySelector('[data-custom-imdb-button]')) return;
+
+        const imdbIdMatch = window.location.pathname.match(/tt\d+/);
+        if (!imdbIdMatch) return;
+
+        const imdbId = imdbIdMatch[0];
+        const button = createButton(imdbId);
+        button.setAttribute('data-custom-imdb-button', 'true');
+
+        // Try multiple locations to insert the button
+        const selectors = [
+            '[data-testid="hero-title-block__title"]',
+            '.hero__title',
+            '.title_wrapper h1',
+            'h1[data-testid*="title"]',
+            'h1',
+            '.sc-b5e8e7ce-0',
+            '.ipc-title__text'
+        ];
+
+        for (const selector of selectors) {
+            const titleElement = document.querySelector(selector);
+            if (titleElement && titleElement.textContent && titleElement.textContent.trim().length > 0) {
+                const container = document.createElement('div');
+                container.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                    margin-bottom: 10px;
+                    flex-wrap: wrap;
+                `;
+
+                titleElement.parentNode.insertBefore(container, titleElement);
+                container.appendChild(titleElement);
+                container.appendChild(button);
+                buttonsAdded = true;
+                processedMovies.add(imdbId);
                 return;
-            } catch (e) {
-                console.warn('GM_addStyle failed, using fallback');
             }
         }
-        
-        // Method 2: Standard style element
-        try {
-            const style = document.createElement('style');
-            style.type = 'text/css';
-            style.textContent = css;
-            
-            // Multiple injection points
-            const injectionPoints = [
-                () => document.head.appendChild(style),
-                () => document.documentElement.appendChild(style),
-                () => document.body.appendChild(style)
-            ];
-            
-            for (const inject of injectionPoints) {
-                try {
-                    inject();
-                    break;
-                } catch (e) {
-                    // Continue to next injection point
-                }
+
+        // Fallback for title page
+        const fallbackContainers = [
+            '.sc-b5e8e7ce-0',
+            '.sc-5be2ae66-0',
+            '.title-overview',
+            '.titleBar',
+            '.ipc-page-content-container',
+            '[data-testid="hero-title-block"]'
+        ];
+
+        for (const containerSelector of fallbackContainers) {
+            const container = document.querySelector(containerSelector);
+            if (container) {
+                const buttonContainer = document.createElement('div');
+                buttonContainer.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                    margin-bottom: 15px;
+                    flex-wrap: wrap;
+                `;
+                buttonContainer.appendChild(button);
+                container.insertBefore(buttonContainer, container.firstChild);
+                buttonsAdded = true;
+                processedMovies.add(imdbId);
+                return;
             }
-        } catch (e) {
-            console.error('All CSS injection methods failed');
         }
     }
-    
-    // Main script logic
-    function main() {
-        let buttonsAdded = false;
-        let processedMovies = new Set();
-        let scanInterval;
-        
-        function insertCustomButton() {
-            const currentUrl = window.location.href;
-            
-            if (currentUrl.includes('/chart/')) {
-                addButtonsToChartPage();
-            } else {
-                addButtonToTitlePage();
-            }
-        }
-        
-        function addButtonToTitlePage() {
-            if (document.querySelector('.custom-imdb-button')) return;
-            
-            const imdbId = window.location.pathname.match(/tt\d+/)?.[0];
-            if (!imdbId) return;
-            
-            const button = createButton(imdbId);
-            
-            const selectors = [
-                '[data-testid="hero-title-block__title"]',
-                '.hero__title',
-                '.title_wrapper h1',
-                'h1[data-testid*="title"]',
-                'h1'
-            ];
-            
-            for (const selector of selectors) {
-                const titleElement = document.querySelector(selector);
-                if (titleElement && titleElement.parentNode) {
-                    const container = document.createElement('div');
-                    container.style.cssText = `
-                        display: flex;
-                        align-items: center;
-                        gap: 15px;
-                        margin-bottom: 10px;
-                        flex-wrap: wrap;
-                    `;
-                    
-                    try {
-                        titleElement.parentNode.insertBefore(container, titleElement);
-                        container.appendChild(titleElement);
-                        container.appendChild(button);
-                        buttonsAdded = true;
-                        processedMovies.add(imdbId);
-                        return;
-                    } catch (e) {
-                        console.warn('Failed to insert button for selector:', selector);
-                    }
-                }
-            }
-            
-            // Fallback injection methods
-            const fallbackContainers = [
-                document.querySelector('.sc-5be2ae66-0'),
-                document.querySelector('.title-overview'),
-                document.querySelector('.titleBar'),
-                document.querySelector('main'),
-                document.body
-            ];
-            
-            for (const container of fallbackContainers) {
-                if (container) {
-                    try {
-                        const wrapper = document.createElement('div');
-                        wrapper.style.cssText = `
-                            display: flex;
-                            align-items: center;
-                            gap: 15px;
-                            margin-bottom: 15px;
-                            flex-wrap: wrap;
-                        `;
-                        wrapper.appendChild(button);
-                        container.insertBefore(wrapper, container.firstChild);
-                        buttonsAdded = true;
-                        processedMovies.add(imdbId);
-                        return;
-                    } catch (e) {
-                        // Try next container
-                    }
-                }
-            }
-        }
-        
-        function addButtonsToChartPage() {
-            try {
-                const movieLinks = document.querySelectorAll('a[href*="/title/tt"]');
-                let addedAnyButtons = false;
-                
-                movieLinks.forEach((link) => {
+
+    function addButtonsToChartPage() {
+        const movieSelectors = [
+            '.ipc-metadata-list-summary-item',
+            '.ipc-poster-card',
+            '.ipc-lockup',
+            '.lister-list tr',
+            '[data-testid*="chart"] li',
+            '.titleColumn',
+            '.sc-b5e8e7ce-0'
+        ];
+
+        movieSelectors.forEach(selector => {
+            const movieItems = document.querySelectorAll(selector);
+
+            movieItems.forEach((item, index) => {
+                const links = item.querySelectorAll('a[href*="/title/tt"]');
+
+                links.forEach(link => {
                     const href = link.getAttribute('href');
-                    const imdbIdMatch = href && href.match(/tt\d+/);
-                    
+                    const imdbIdMatch = href.match(/tt\d+/);
+
                     if (imdbIdMatch) {
                         const imdbId = imdbIdMatch[0];
-                        
+
                         if (processedMovies.has(imdbId)) return;
-                        
-                        if (isMainMovieLink(link)) {
-                            const movieContainer = link.closest('.ipc-lockup, .ipc-metadata-list-summary-item, .ipc-poster-card, [data-testid*="chart"]');
-                            if (movieContainer && movieContainer.querySelector('.custom-imdb-button')) {
+
+                        if (isMainMovieLink(link, item)) {
+                            if (item.querySelector('[data-custom-imdb-button]')) {
                                 processedMovies.add(imdbId);
                                 return;
                             }
-                            
+
                             const button = createButton(imdbId);
-                            button.classList.add('chart-size');
-                            
-                            if (insertButtonAfterTitle(link, button)) {
+                            button.setAttribute('data-custom-imdb-button', 'true');
+
+                            button.style.cssText += `
+                                width: 50px;
+                                height: 50px;
+                                margin-left: 10px;
+                                margin-right: 0;
+                                flex-shrink: 0;
+                                display: inline-flex;
+                                align-items: center;
+                                justify-content: center;
+                                border-radius: 8px;
+                            `;
+
+                            if (insertButtonInChartItem(item, link, button)) {
                                 processedMovies.add(imdbId);
-                                addedAnyButtons = true;
+                                buttonsAdded = true;
                             }
                         }
                     }
                 });
-                
-                if (addedAnyButtons) {
-                    buttonsAdded = true;
-                }
-            } catch (e) {
-                console.warn('Error in addButtonsToChartPage:', e);
-            }
-        }
-        
-        function isMainMovieLink(link) {
-            if (!link || !link.classList) return false;
-            
-            const classList = link.classList;
-            return (
-                classList.contains('ipc-lockup-overlay') ||
-                classList.contains('ipc-title-link-wrapper') ||
-                classList.contains('ipc-poster-card') ||
-                classList.contains('ipc-primary-image-link') ||
-                link.closest('.ipc-metadata-list-summary-item') ||
-                link.closest('.ipc-poster-card') ||
-                link.closest('.ipc-lockup') ||
-                link.closest('[data-testid="chart-layout-main-column"]') ||
-                link.querySelector('h3') ||
-                link.querySelector('[data-testid="title"]')
-            );
-        }
-        
-        function insertButtonAfterTitle(link, button) {
-            if (!link || !link.parentNode) return false;
-            
-            const linkClasses = link.classList;
-            
-            try {
-                if (linkClasses.contains('ipc-title-link-wrapper')) {
-                    link.parentNode.insertBefore(button, link.nextSibling);
+            });
+        });
+    }
+
+    function isMainMovieLink(link, container) {
+        const classList = link.classList;
+        const href = link.getAttribute('href');
+
+        const isBanned = href.includes('/reference') ||
+                        href.includes('/keywords') ||
+                        href.includes('/reviews') ||
+                        href.includes('/trivia') ||
+                        href.includes('/externalreviews');
+
+        return !isBanned && (
+            classList.contains('ipc-lockup-overlay') ||
+            classList.contains('ipc-title-link-wrapper') ||
+            classList.contains('ipc-poster-card') ||
+            classList.contains('ipc-primary-image-link') ||
+            classList.contains('sc-b5e8e7ce-0') ||
+            container.querySelector('h3') ||
+            container.querySelector('[data-testid="title"]') ||
+            container.querySelector('.ipc-title__text') ||
+            container.closest('.ipc-metadata-list-summary-item') ||
+            container.closest('.ipc-poster-card') ||
+            container.closest('.ipc-lockup') ||
+            container.closest('.lister-list') ||
+            container.closest('.sc-b5e8e7ce-0')
+        );
+    }
+
+    function insertButtonInChartItem(item, link, button) {
+        try {
+            const titleSelectors = [
+                'h3',
+                '.ipc-title__text',
+                '[data-testid="title"]',
+                'a[href*="/title/tt"]',
+                '.titleColumn a'
+            ];
+
+            for (const selector of titleSelectors) {
+                const titleElement = item.querySelector(selector);
+                if (titleElement && titleElement.textContent && titleElement.textContent.trim().length > 0) {
+                    titleElement.parentNode.insertBefore(button, titleElement.nextSibling);
                     return true;
                 }
-                else if (linkClasses.contains('ipc-lockup-overlay')) {
-                    const titleElement = findTitleElement(link);
-                    if (titleElement && titleElement.parentNode) {
-                        titleElement.parentNode.insertBefore(button, titleElement.nextSibling);
-                        return true;
-                    } else {
-                        const container = link.closest('.ipc-lockup') || link.closest('.ipc-poster-card') || link.parentElement;
-                        if (container && container.parentNode) {
-                            container.parentNode.insertBefore(button, container.nextSibling);
-                            return true;
-                        }
-                    }
-                }
-                else if (linkClasses.contains('ipc-poster-card') || linkClasses.contains('ipc-primary-image-link')) {
-                    const container = link.closest('.ipc-poster-card') || link.parentElement;
-                    if (container && container.parentNode) {
-                        container.parentNode.insertBefore(button, container.nextSibling);
-                        return true;
-                    }
-                }
-                else if (link.parentNode) {
-                    link.parentNode.insertBefore(button, link.nextSibling);
-                    return true;
-                }
-            } catch (e) {
-                console.warn('Error inserting button after title:', e);
             }
-            
+
+            item.appendChild(button);
+            return true;
+
+        } catch (e) {
             return false;
         }
-        
-        function findTitleElement(link) {
-            const container = link.closest('.ipc-lockup') || link.closest('.ipc-metadata-list-summary-item') || link.closest('.ipc-poster-card');
-            if (container) {
-                return container.querySelector('h3') || 
-                       container.querySelector('[data-testid="title"]') ||
-                       container.querySelector('.ipc-title__text');
-            }
-            return null;
+    }
+
+    function createButton(imdbId) {
+        const reUrl = `https://reyohoho-gitlab.vercel.app/#imdb=${imdbId}`;
+        const imageUrl = 'https://i.ibb.co/DH41jFJz/15193c61816da2c6ad602e627b01c926.jpg';
+
+        const button = document.createElement('a');
+        button.href = reUrl;
+        button.target = '_blank';
+        button.title = 'Open in Enhanced View';
+
+        button.setAttribute('data-re-url', reUrl);
+        button.setAttribute('data-imdb-id', imdbId);
+
+        button.style.cssText = `
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 70px;
+            height: 70px;
+            border-radius: 8px;
+            background-image: url('${imageUrl}');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            border: 3px solid #fff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            margin-right: 15px;
+            vertical-align: middle;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        `;
+
+        button.addEventListener('mouseover', function() {
+            this.style.transform = 'scale(1.1)';
+            this.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+        });
+
+        button.addEventListener('mouseout', function() {
+            this.style.transform = 'scale(1)';
+            this.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+        });
+
+        return button;
+    }
+
+    function startContinuousScan() {
+        if (!isSupportedPage()) return;
+
+        // Initial scan
+        insertCustomButton();
+
+        // Optimized scanning for chart pages
+        if (window.location.href.includes('/chart/')) {
+            // Reduced scanning intervals
+            setTimeout(() => addButtonsToChartPage(), 500);
+            setTimeout(() => addButtonsToChartPage(), 1500);
+            
+            // Less frequent continuous scanning
+            setInterval(() => {
+                addButtonsToChartPage();
+            }, 3000);
         }
-        
-        function createButton(imdbId) {
-            const button = document.createElement('a');
-            button.href = `https://reyohoho-gitlab.vercel.app/#imdb=${imdbId}`;
-            button.target = '_blank';
-            button.className = 'custom-imdb-button';
-            
-            button.addEventListener('click', function(e) {
-                this.style.transform = 'scale(0.95)';
-                setTimeout(() => {
-                    this.style.transform = '';
-                }, 150);
-            });
-            
-            return button;
-        }
-        
-        function startContinuousScan() {
-            insertCustomButton();
-            
-            scanInterval = setInterval(() => {
+
+        // Throttled scroll-based scanning
+        let scrollTimeout;
+        window.addEventListener('scroll', () => {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
                 if (window.location.href.includes('/chart/')) {
                     addButtonsToChartPage();
                 }
-            }, 1500);
-            
-            let scrollTimeout;
-            window.addEventListener('scroll', () => {
-                clearTimeout(scrollTimeout);
-                scrollTimeout = setTimeout(() => {
-                    if (window.location.href.includes('/chart/')) {
-                        addButtonsToChartPage();
-                    }
-                }, 400);
-            });
+            }, 800);
+        });
+    }
+
+    // Initialize
+    function init() {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startContinuousScan);
+        } else {
+            startContinuousScan();
         }
-        
-        function setupObservers() {
-            try {
-                const observer = new MutationObserver((mutations) => {
-                    const hasNewContent = mutations.some(mutation => 
-                        mutation.addedNodes && mutation.addedNodes.length > 0
-                    );
-                    
-                    if (hasNewContent) {
-                        clearTimeout(window.customButtonTimeout);
-                        window.customButtonTimeout = setTimeout(() => {
-                            if (window.location.href.includes('/chart/')) {
-                                addButtonsToChartPage();
-                            }
-                        }, 600);
-                    }
-                });
-                
-                observer.observe(document.body, {
-                    childList: true,
-                    subtree: true
-                });
-                
-                // SPA navigation detection
-                let lastUrl = location.href;
-                const navObserver = new MutationObserver(() => {
-                    const url = location.href;
-                    if (url !== lastUrl) {
-                        lastUrl = url;
-                        buttonsAdded = false;
-                        processedMovies.clear();
-                        if (scanInterval) clearInterval(scanInterval);
-                        setTimeout(() => {
-                            startContinuousScan();
-                        }, 1200);
-                    }
-                });
-                
-                navObserver.observe(document, { 
-                    subtree: true, 
-                    childList: true 
-                });
-            } catch (e) {
-                console.warn('Observers not supported, using interval-based scanning only');
-                startContinuousScan();
+    }
+
+    init();
+
+    // Optimized MutationObserver
+    const observer = new MutationObserver(function(mutations) {
+        if (!isSupportedPage()) return;
+
+        let shouldRescan = false;
+        for (const mutation of mutations) {
+            if (mutation.addedNodes.length > 0) {
+                shouldRescan = true;
+                break;
             }
         }
-        
-        // Start the main functionality
-        startContinuousScan();
-        setupObservers();
-        
-        // Final fallback: periodic full page scan
-        setInterval(insertCustomButton, 5000);
+
+        if (shouldRescan) {
+            clearTimeout(window.customButtonTimeout);
+            window.customButtonTimeout = setTimeout(() => {
+                if (window.location.href.includes('/chart/')) {
+                    addButtonsToChartPage();
+                } else {
+                    addButtonToTitlePage();
+                }
+            }, 500);
+        }
+    });
+
+    // Start observing when body is available
+    if (document.body) {
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
     }
-    
+
+    // Handle SPA navigation
+    let lastUrl = location.href;
+    new MutationObserver(() => {
+        const url = location.href;
+        if (url !== lastUrl) {
+            lastUrl = url;
+            buttonsAdded = false;
+            processedMovies.clear();
+
+            setTimeout(() => {
+                if (isSupportedPage()) {
+                    startContinuousScan();
+                }
+            }, 1000);
+        }
+    }).observe(document, { subtree: true, childList: true });
+
 })();
