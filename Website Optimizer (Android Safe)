@@ -1,0 +1,175 @@
+// ==UserScript==
+// @name         Website Optimizer (Android Safe)
+// @namespace    http://tampermonkey.net/
+// @version      1.2
+// @description  Safer decluttering for faster loading and less CPU/RAM use - Android optimized
+// @author       YourName
+// @match        *://*/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // Add your own whitelist here (don't run on these domains)
+    const whitelist = [
+        'docs.google.com',
+        'mail.google.com',
+        'github.com'
+    ];
+    if (whitelist.some(domain => location.hostname.includes(domain))) return;
+
+    // Check if mobile device for optimizations
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    // Performance tracking to avoid excessive processing
+    let lastRunTime = 0;
+    const MIN_RUN_INTERVAL = 1000; // Don't run more than once per second
+
+    function safeRemoveBloat() {
+        const now = Date.now();
+        if (now - lastRunTime < MIN_RUN_INTERVAL) return;
+        lastRunTime = now;
+
+        try {
+            // Remove fixed overlays/popups that cover the page - mobile optimized
+            document.querySelectorAll('div, section, aside').forEach(el => {
+                if (!el.isConnected) return; // Skip if already removed
+                
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                
+                // More conservative thresholds for mobile
+                const widthThreshold = isMobile ? window.innerWidth * 0.6 : window.innerWidth * 0.5;
+                const heightThreshold = isMobile ? window.innerHeight * 0.4 : window.innerHeight * 0.3;
+                
+                if (
+                    (style.position === 'fixed' || style.position === 'sticky') &&
+                    (rect.width > widthThreshold) &&
+                    (rect.height > heightThreshold) &&
+                    (rect.top >= 0 || rect.bottom <= window.innerHeight) // Only if covering viewport
+                ) {
+                    // Check if it might be important (has form elements, navigation, etc.)
+                    const hasImportantContent = el.querySelector('form, nav, input, button[type="submit"]');
+                    if (!hasImportantContent) {
+                        el.remove();
+                    }
+                }
+            });
+
+            // Remove auto-playing videos/audios - more aggressive on mobile
+            document.querySelectorAll('video, audio').forEach(el => {
+                if (!el.isConnected) return;
+                
+                // On mobile, be more aggressive with video removal
+                if (isMobile && el.tagName === 'VIDEO') {
+                    const rect = el.getBoundingClientRect();
+                    // Remove large background videos on mobile
+                    if (rect.width > window.innerWidth * 0.8 && rect.height > window.innerHeight * 0.8) {
+                        el.remove();
+                        return;
+                    }
+                }
+                
+                if (!el.paused) {
+                    el.pause();
+                    el.currentTime = 0;
+                }
+                
+                // Prevent autoplay on mobile
+                if (isMobile) {
+                    el.removeAttribute('autoplay');
+                    el.setAttribute('preload', 'none');
+                }
+            });
+
+            // Remove iframes from known ad/video domains - expanded for mobile
+            const adPatterns = /doubleclick|adservice|youtube|vimeo|player\.twitch\.tv|googleads|facebook\.com\/plugins|twitter\.com\/widgets/i;
+            document.querySelectorAll('iframe').forEach(el => {
+                if (!el.isConnected) return;
+                
+                if (adPatterns.test(el.src) || 
+                    (isMobile && el.src && !el.src.startsWith(location.origin)) // More aggressive on cross-origin iframes for mobile
+                ) {
+                    const rect = el.getBoundingClientRect();
+                    // Don't remove small iframes that might be important
+                    if (rect.width > 100 || rect.height > 50) {
+                        el.remove();
+                    }
+                }
+            });
+
+            // Optimize animations - less aggressive on mobile to avoid breaking UI
+            if (!document.getElementById('tm-optimize-style')) {
+                const style = document.createElement('style');
+                style.id = 'tm-optimize-style';
+                // More conservative animation reduction on mobile
+                if (isMobile) {
+                    style.innerHTML = `
+                        * {
+                            animation-duration: 0.2s !important;
+                            transition-duration: 0.2s !important;
+                            animation-iteration-count: 1 !important;
+                        }
+                        .ad,.ads,.advertisement,[class*="ad-"],[id*="ad-"] {
+                            display: none !important;
+                        }
+                    `;
+                } else {
+                    style.innerHTML = `
+                        * {
+                            animation-duration: 0.001s !important;
+                            transition-duration: 0.001s !important;
+                        }
+                    `;
+                }
+                document.head.appendChild(style);
+            }
+
+            // Mobile-specific: Remove large images outside viewport
+            if (isMobile) {
+                document.querySelectorAll('img').forEach(img => {
+                    if (!img.isConnected) return;
+                    
+                    const rect = img.getBoundingClientRect();
+                    // Remove very large images that are outside viewport
+                    if (rect.width > 1000 && rect.height > 1000 && 
+                        (rect.bottom < 0 || rect.top > window.innerHeight)) {
+                        img.remove();
+                    }
+                });
+            }
+
+        } catch (error) {
+            console.log('Website Optimizer: Safe error occurred', error);
+        }
+    }
+
+    // Use requestAnimationFrame for better performance
+    function optimizedRun() {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', safeRemoveBloat);
+        } else {
+            requestAnimationFrame(safeRemoveBloat);
+        }
+    }
+
+    // Initial run
+    optimizedRun();
+    
+    // Less frequent checks for dynamic content
+    const checkInterval = isMobile ? 4000 : 3000;
+    setInterval(() => {
+        requestAnimationFrame(safeRemoveBloat);
+    }, checkInterval);
+
+    // Also run when user scrolls (for lazy-loaded content)
+    let scrollTimeout;
+    window.addEventListener('scroll', () => {
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            requestAnimationFrame(safeRemoveBloat);
+        }, 500);
+    }, { passive: true });
+
+})();
