@@ -1,0 +1,306 @@
+// ==UserScript==
+// @name         GitHub Performance Optimizer
+// @namespace    http://tampermonkey.net/
+// @version      1.3
+// @description  Make GitHub faster with instant browsing, faster scroll and responses
+// @author       YourName
+// @match        https://github.com/*
+// @match        https://*.github.com/*
+// @match        https://*.github.io/*
+// @match        https://*.githubapp.com/*
+// @match        https://*.githubusercontent.com/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    let cleanupCount = 0;
+    const MAX_CLEANUPS = 6;
+
+    function optimizeGitHub() {
+        if (cleanupCount >= MAX_CLEANUPS) return;
+        cleanupCount++;
+
+        try {
+            // 1. Remove heavy/video elements that aren't essential for GitHub
+            const heavySelectors = [
+                'video[autoplay]',
+                'iframe[src*="youtube"]',
+                'iframe[src*="vimeo"]',
+                '.video-container',
+                '.embed-video',
+                '.advertisement',
+                '.ads',
+                '[class*="ad-"]',
+                '[id*="ad-"]',
+                '.promo-banner',
+                '.sponsored-content'
+            ];
+
+            heavySelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                    // Only remove if not in readme or important content
+                    if (!el.closest('.markdown-body') && !el.closest('[data-pjax]')) {
+                        el.remove();
+                    }
+                });
+            });
+
+            // 2. Optimize animations and transitions for instant feel
+            if (!document.getElementById('github-perf-style')) {
+                const style = document.createElement('style');
+                style.id = 'github-perf-style';
+                style.textContent = `
+                    /* Drastically reduce all animations for instant response */
+                    * {
+                        animation-duration: 0.01s !important;
+                        transition-duration: 0.01s !important;
+                        animation-iteration-count: 1 !important;
+                        scroll-behavior: auto !important;
+                    }
+                    
+                    /* But keep essential UI feedback */
+                    .btn:hover,
+                    .Button:hover,
+                    [data-hovercard]:hover {
+                        transition-duration: 0.05s !important;
+                    }
+                    
+                    /* Optimize code view performance */
+                    .blob-wrapper,
+                    .highlight,
+                    .react-code-text {
+                        will-change: transform;
+                        transform: translateZ(0);
+                    }
+                    
+                    /* Remove some promotional elements */
+                    .newsletter-banner,
+                    .promotional-banner,
+                    [data-testid*="promo"] {
+                        display: none !important;
+                    }
+                    
+                    /* Improve scroll performance */
+                    .js-repo-nav,
+                    .file-navigation,
+                    .repository-content,
+                    .Layout-main {
+                        content-visibility: auto;
+                        contain: layout style paint;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // 3. Optimize images with lazy loading
+            const images = document.querySelectorAll('img:not([loading]):not(.avatar)');
+            images.forEach(img => {
+                if (!img.hasAttribute('loading') && !img.classList.contains('avatar')) {
+                    img.setAttribute('loading', 'lazy');
+                    img.setAttribute('decoding', 'async');
+                }
+            });
+
+            // 4. Remove tracking and analytics scripts
+            const trackingSelectors = [
+                'iframe[src*="google-analytics"]',
+                'iframe[src*="doubleclick"]',
+                'script[src*="analytics"]',
+                'script[src*="tracking"]'
+            ];
+
+            trackingSelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                    el.remove();
+                });
+            });
+
+            // 5. Optimize repository lists and file trees
+            const heavyLists = [
+                '.js-repo-list',
+                '.file-tree',
+                '.tree-view',
+                '.js-navigation-container',
+                '[data-testid="repository-directory"]'
+            ];
+
+            heavyLists.forEach(selector => {
+                document.querySelectorAll(selector).forEach(list => {
+                    list.style.contentVisibility = 'auto';
+                    list.style.contain = 'layout style paint';
+                });
+            });
+
+            // 6. Debounce search and input operations
+            const searchInputs = document.querySelectorAll('#dashboard-repos-filter, #your-repos-filter, [data-hotkey="s"], .js-site-search-form input');
+            searchInputs.forEach(input => {
+                if (!input.hasAttribute('data-optimized')) {
+                    let searchTimeout;
+                    const originalHandler = input.oninput;
+                    
+                    input.oninput = function(e) {
+                        clearTimeout(searchTimeout);
+                        searchTimeout = setTimeout(() => {
+                            if (originalHandler) originalHandler.call(this, e);
+                        }, 150); // Very fast debounce for GitHub
+                    };
+                    
+                    input.setAttribute('data-optimized', 'true');
+                }
+            });
+
+            // 7. Optimize code highlighting performance
+            const codeBlocks = document.querySelectorAll('.highlight, .react-code-text, .blob-code');
+            codeBlocks.forEach(block => {
+                block.style.willChange = 'transform';
+                block.style.transform = 'translateZ(0)';
+            });
+
+            // 8. Memory management for large diffs and files
+            const largeDiffs = document.querySelectorAll('.diff-view, .file-diff, [data-details-container]');
+            largeDiffs.forEach(diff => {
+                const rect = diff.getBoundingClientRect();
+                if (rect.top > window.innerHeight * 2 || rect.bottom < -window.innerHeight) {
+                    diff.querySelectorAll('img:not([data-essential])').forEach(img => {
+                        img.src = '';
+                        img.srcset = '';
+                    });
+                }
+            });
+
+            // 9. Optimize avatar loading (delay non-visible avatars)
+            const avatars = document.querySelectorAll('.avatar:not([data-essential])');
+            avatars.forEach(avatar => {
+                const rect = avatar.getBoundingClientRect();
+                if (rect.top > window.innerHeight * 1.5 || rect.bottom < -window.innerHeight) {
+                    avatar.setAttribute('loading', 'lazy');
+                }
+            });
+
+            // 10. Remove unused web fonts and optimize typography
+            if (!document.getElementById('github-font-optimizer')) {
+                const fontStyle = document.createElement('style');
+                fontStyle.id = 'github-font-optimizer';
+                fontStyle.textContent = `
+                    /* Optimize font loading */
+                    * {
+                        font-display: swap !important;
+                    }
+                    
+                    /* Reduce layout shifts */
+                    .avatar,
+                    .octicon,
+                    .Button {
+                        min-width: 16px;
+                        min-height: 16px;
+                    }
+                `;
+                document.head.appendChild(fontStyle);
+            }
+
+            console.log('GitHub Optimizer: Performance enhanced');
+
+        } catch (error) {
+            console.log('GitHub Optimizer: Safe error occurred', error);
+        }
+    }
+
+    // Performance monitoring specific to GitHub
+    function monitorGitHubPerformance() {
+        // Reduce timer resolution
+        if (window.performance && window.performance.now) {
+            const originalNow = performance.now;
+            performance.now = function() {
+                return Math.floor(originalNow.call(performance) / 5) * 5;
+            };
+        }
+
+        // Optimize GitHub's internal performance markers
+        if (window.performance && performance.mark) {
+            const originalMark = performance.mark;
+            performance.mark = function(name) {
+                if (!name.includes('github') && !name.includes('pjax')) {
+                    return; // Skip non-essential performance marks
+                }
+                return originalMark.call(performance, name);
+            };
+        }
+    }
+
+    // Strategic optimization for GitHub's PJAX navigation
+    function setupPJAXOptimization() {
+        // Listen for GitHub's PJAX navigation
+        document.addEventListener('pjax:start', () => {
+            // Pre-optimize before navigation
+            requestAnimationFrame(optimizeGitHub);
+        });
+
+        document.addEventListener('pjax:end', () => {
+            // Optimize after navigation completes
+            setTimeout(optimizeGitHub, 50);
+            setTimeout(optimizeGitHub, 300);
+        });
+    }
+
+    // Initial optimization
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(optimizeGitHub, 10);
+            setTimeout(optimizeGitHub, 500);
+            monitorGitHubPerformance();
+            setupPJAXOptimization();
+        });
+    } else {
+        setTimeout(optimizeGitHub, 10);
+        setTimeout(optimizeGitHub, 500);
+        monitorGitHubPerformance();
+        setupPJAXOptimization();
+    }
+
+    // Optimize on user interactions (more aggressive for GitHub)
+    let interactionTimeout;
+    const optimizeOnInteraction = () => {
+        clearTimeout(interactionTimeout);
+        interactionTimeout = setTimeout(optimizeGitHub, 800);
+    };
+
+    ['click', 'scroll', 'keydown', 'mousemove'].forEach(event => {
+        document.addEventListener(event, optimizeOnInteraction, { passive: true });
+    });
+
+    // GitHub-specific: Optimize on specific GitHub actions
+    const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            if (mutation.type === 'childList') {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType === 1 && (
+                        node.classList.contains('js-pjax-loader') ||
+                        node.querySelector('.js-pjax-loader')
+                    )) {
+                        setTimeout(optimizeGitHub, 100);
+                    }
+                }
+            }
+        }
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    // Clean up on page hide
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            // Reduce resource usage when tab is not visible
+            document.querySelectorAll('video').forEach(video => {
+                if (!video.paused) video.pause();
+            });
+        } else {
+            setTimeout(optimizeGitHub, 100);
+        }
+    });
+
+})();
