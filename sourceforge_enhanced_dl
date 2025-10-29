@@ -1,0 +1,283 @@
+// ==UserScript==
+// @name        SourceForge Enhanced Download (Global + CN Mirror)
+// @description Direct CDN downloads with China proxy fallback. Auto-detects region with one-click toggle.
+// @namespace   https://github.com/yourname
+// @include     http*://sourceforge.net/*/files/*
+// @include     http*://sourceforge.net/projects/*/files/*
+// @version     2.3
+// @grant       GM_setValue
+// @grant       GM_getValue
+// @grant       GM_registerMenuCommand
+// @grant       GM_notification
+// @author      Combined logic (originals: czyt, BlackNullerNS)
+// @downloadURL https://example.com/sf-enhanced-download.user.js
+// @updateURL   https://example.com/sf-enhanced-download.meta.js
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    const CONFIG = {
+        useChinaMirror: GM_getValue('useChinaMirror', false),
+        autoDetectRegion: GM_getValue('autoDetectRegion', true),
+        showNotifications: GM_getValue('showNotifications', true),
+        lastUpdated: GM_getValue('lastUpdated', 0)
+    };
+
+    // Register multiple menu commands for full control
+    GM_registerMenuCommand(
+        `🌐 Download Source: ${CONFIG.useChinaMirror ? '🇨🇳 China Proxy' : '🌍 Global CDN'}`,
+        toggleChinaMirror
+    );
+    
+    GM_registerMenuCommand(
+        `🔔 Notifications: ${CONFIG.showNotifications ? 'ON' : 'OFF'}`,
+        toggleNotifications
+    );
+    
+    GM_registerMenuCommand(
+        '🔄 Reset All Settings',
+        resetSettings
+    );
+
+    const MIRRORS = {
+        china: {
+            host: 'hole.czyt.tech/magic/https/udomain.dl.sourceforge.net/sourceforge/',
+            name: 'China Proxy',
+            color: '#ff4444',
+            emoji: '🇨🇳'
+        },
+        cdn: {
+            host: 'downloads.sourceforge.net/project/',
+            name: 'Global CDN',
+            color: '#4CAF50',
+            emoji: '🌍'
+        }
+    };
+
+    function showNotification(message, type = 'info') {
+        if (!CONFIG.showNotifications) return;
+        
+        const colors = {
+            info: '#2196F3',
+            success: '#4CAF50',
+            warning: '#FF9800',
+            error: '#f44336'
+        };
+        
+        const notification = document.createElement('div');
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${colors[type] || colors.info};
+            color: white;
+            padding: 12px 16px;
+            border-radius: 6px;
+            z-index: 10000;
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-width: 300px;
+            word-wrap: break-word;
+            animation: slideIn 0.3s ease-out;
+        `;
+        
+        // Add CSS animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        document.body.appendChild(notification);
+        
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-in forwards';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
+
+    function toggleChinaMirror() {
+        CONFIG.useChinaMirror = !CONFIG.useChinaMirror;
+        GM_setValue('useChinaMirror', CONFIG.useChinaMirror);
+        
+        const currentMirror = CONFIG.useChinaMirror ? MIRRORS.china : MIRRORS.cdn;
+        showNotification(`Switched to ${currentMirror.emoji} ${currentMirror.name}`, 'success');
+        
+        // Reload after a brief delay to show notification
+        setTimeout(() => location.reload(), 1000);
+    }
+
+    function toggleNotifications() {
+        CONFIG.showNotifications = !CONFIG.showNotifications;
+        GM_setValue('showNotifications', CONFIG.showNotifications);
+        showNotification(`Notifications ${CONFIG.showNotifications ? 'enabled' : 'disabled'}`, 'info');
+    }
+
+    function resetSettings() {
+        GM_setValue('useChinaMirror', false);
+        GM_setValue('autoDetectRegion', true);
+        GM_setValue('showNotifications', true);
+        showNotification('All settings reset to defaults', 'success');
+        setTimeout(() => location.reload(), 1000);
+    }
+
+    function updateDownloadLinks() {
+        const links = document.querySelectorAll('a[href*="/download"]');
+        if (!links.length) return;
+
+        let updatedCount = 0;
+        const currentMirror = CONFIG.useChinaMirror ? MIRRORS.china : MIRRORS.cdn;
+
+        for (const link of links) {
+            const href = link.getAttribute('href');
+            if (!href || !href.includes('/download')) continue;
+
+            // Robust regex for various URL formats
+            const match = href.match(/\/projects?\/([^\/]+)\/files\/(.+?)\/download(?:$|\?)/i);
+            if (!match) continue;
+
+            const project = match[1];
+            const filePath = match[2];
+
+            // Construct new URL
+            const newHref = `https://${currentMirror.host}${project}/${filePath}`;
+            
+            // Update link properties
+            link.setAttribute('href', newHref);
+            link.setAttribute('target', '_blank');
+            link.setAttribute('title', `Direct download via ${currentMirror.name} (Click to download)`);
+            
+            // Visual styling
+            link.style.borderLeft = `3px solid ${currentMirror.color}`;
+            link.style.paddingLeft = '8px';
+            link.style.transition = 'all 0.2s ease';
+            
+            // Add hover effect
+            link.addEventListener('mouseenter', function() {
+                this.style.backgroundColor = `${currentMirror.color}15`;
+            });
+            link.addEventListener('mouseleave', function() {
+                this.style.backgroundColor = '';
+            });
+
+            updatedCount++;
+        }
+
+        // Show summary notification on first run
+        const now = Date.now();
+        if (updatedCount > 0 && (now - CONFIG.lastUpdated > 5000)) {
+            showNotification(
+                `Enhanced ${updatedCount} download links using ${currentMirror.emoji} ${currentMirror.name}`,
+                'success'
+            );
+            GM_setValue('lastUpdated', now);
+        }
+
+        console.log(`SourceForge Enhanced: Updated ${updatedCount} links using ${currentMirror.name}`);
+        
+        if (CONFIG.useChinaMirror) {
+            console.info('ℹ️ China mirror is a third-party proxy. Use Tampermonkey menu to switch if downloads fail.');
+        }
+    }
+
+    // Enhanced region detection
+    function autoDetectRegion() {
+        if (!CONFIG.autoDetectRegion) return false;
+        
+        const detectors = [
+            // Language detection
+            () => navigator.language.toLowerCase().includes('zh'),
+            // Timezone detection
+            () => {
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                return tz.includes('Shanghai') || tz.includes('Chongqing') || 
+                       tz.includes('Beijing') || tz.includes('Hong_Kong') || 
+                       tz.includes('Taipei') || tz.includes('Asia/Shanghai');
+            },
+            // Geolocation API (if available)
+            () => {
+                const languages = navigator.languages || [];
+                return languages.some(lang => lang.toLowerCase().includes('zh'));
+            }
+        ];
+        
+        return detectors.some(detector => {
+            try {
+                return detector();
+            } catch (e) {
+                return false;
+            }
+        });
+    }
+
+    // First-run initialization
+    if (CONFIG.autoDetectRegion && GM_getValue('useChinaMirror') === undefined) {
+        const shouldUseChinaMirror = autoDetectRegion();
+        CONFIG.useChinaMirror = shouldUseChinaMirror;
+        GM_setValue('useChinaMirror', shouldUseChinaMirror);
+        
+        if (shouldUseChinaMirror) {
+            console.info('SourceForge Enhanced: Auto-detected Chinese region, using China proxy');
+        }
+    }
+
+    // Initialize with proper ready state handling
+    function init() {
+        updateDownloadLinks();
+        
+        // Observe for dynamic content
+        const observer = new MutationObserver((mutations) => {
+            let shouldUpdate = false;
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length) {
+                    shouldUpdate = true;
+                    break;
+                }
+            }
+            if (shouldUpdate) {
+                setTimeout(updateDownloadLinks, 150);
+            }
+        });
+        
+        observer.observe(document.body, { 
+            childList: true, 
+            subtree: true,
+            attributes: false,
+            characterData: false
+        });
+
+        // Additional check for slow-loading pages
+        setTimeout(updateDownloadLinks, 1000);
+    }
+
+    // Start the script
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    // Export functions for debugging (optional)
+    window.SourceForgeEnhanced = {
+        config: CONFIG,
+        mirrors: MIRRORS,
+        updateLinks: updateDownloadLinks,
+        toggleMirror: toggleChinaMirror
+    };
+
+})();
